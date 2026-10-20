@@ -38,6 +38,9 @@ importers:
       cloudinary:
         specifier: ^2.11.0
         version: 2.11.0
+      concurrently:
+        specifier: ^10.0.6
+        version: 10.0.6
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -90,9 +93,6 @@ importers:
       '@types/supertest':
         specifier: ^7.0.0
         version: 7.2.1
-      concurrently:
-        specifier: ^10.0.6
-        version: 10.0.6
       eslint:
         specifier: ^9.18.0
         version: 9.39.5

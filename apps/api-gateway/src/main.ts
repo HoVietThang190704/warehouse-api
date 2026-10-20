@@ -18,23 +18,30 @@ async function bootstrap() {
   // 1. Cấu hình đọc Cookie
   app.use(cookieParser());
 
-  // 2. Cấu hình CORS: Cho phép localhost và toàn bộ dải IP mạng LAN để test trên điện thoại
+  // 2. Cấu hình CORS: Cho phép localhost, dải IP mạng LAN và domain Frontend sản xuất (Vercel)
   app.enableCors({
     origin: (
       origin: string | undefined,
       callback: (err: Error | null, allow?: boolean) => void,
     ) => {
+      const frontendUrl = process.env.FRONTEND_URL?.replace(/\/$/, '');
       if (
         !origin ||
         origin.includes('localhost') ||
         origin.includes('127.0.0.1') ||
+        (frontendUrl && (origin === frontendUrl || origin.startsWith(frontendUrl))) ||
+        (process.env.VERCEL_URL && origin.includes(process.env.VERCEL_URL)) ||
         /^http:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(
           origin,
         )
       ) {
         callback(null, true);
       } else {
-        callback(null, true);
+        if (process.env.NODE_ENV === 'production' && frontendUrl) {
+          callback(new Error('Blocked by CORS'));
+        } else {
+          callback(null, true);
+        }
       }
     },
     credentials: true,
@@ -148,7 +155,7 @@ async function bootstrap() {
     }),
   );
 
-  const port = process.env.API_GATEWAY_PORT || 3000;
+  const port = process.env.PORT || process.env.API_GATEWAY_PORT || 3000;
   await app.listen(port, '0.0.0.0');
   console.log(`API Gateway is running on http://0.0.0.0:${port}`);
 }
