@@ -1,19 +1,13 @@
 import {
-  IsEnum,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsPositive,
   IsString,
-  IsUrl,
   IsUUID,
   MaxLength,
+  Min,
 } from 'class-validator';
-
-export enum ProductTypeDto {
-  SINGLE = 'SINGLE',
-  COMBO = 'COMBO',
-}
 
 export class CreateProductDto {
   @IsString({ message: 'SKU must be a string' })
@@ -32,16 +26,27 @@ export class CreateProductDto {
   barcode?: string;
 
   @IsOptional()
-  @IsEnum(ProductTypeDto, { message: 'Type must be either SINGLE or COMBO' })
-  type?: ProductTypeDto;
-
-  @IsOptional()
   @IsUUID('4', { message: 'Category ID must be a valid UUID' })
   categoryId?: string;
 
+  @IsOptional()
+  @IsUUID('4', { message: 'Base Unit ID must be a valid UUID' })
+  baseUnitId?: string;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'Min stock must be a valid number' })
+  @Min(0, { message: 'Min stock cannot be negative' })
+  minStock?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'Cost price must be a valid number' })
+  @Min(0, { message: 'Cost price cannot be negative' })
+  costPrice?: number;
+
+  @IsOptional()
   @IsNumber({}, { message: 'Selling price must be a valid number' })
-  @IsPositive({ message: 'Selling price must be greater than zero' })
-  sellingPrice!: number;
+  @Min(0, { message: 'Selling price cannot be negative' })
+  sellingPrice?: number;
 
   @IsOptional()
   @IsString()

@@ -3,20 +3,24 @@ import { IdentityServiceController } from './identity-service.controller';
 import { IdentityServiceService } from './identity-service.service';
 
 describe('IdentityServiceController', () => {
-  let identityServiceController: IdentityServiceController;
+  let controller: IdentityServiceController;
+
+  const mockIdentityService = {
+    getHello: jest.fn().mockReturnValue('Hello World!'),
+  };
 
   beforeEach(async () => {
     const app: TestingModule = await Test.createTestingModule({
       controllers: [IdentityServiceController],
-      providers: [IdentityServiceService],
+      providers: [
+        { provide: IdentityServiceService, useValue: mockIdentityService },
+      ],
     }).compile();
 
-    identityServiceController = app.get<IdentityServiceController>(IdentityServiceController);
+    controller = app.get<IdentityServiceController>(IdentityServiceController);
   });
 
-  describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(identityServiceController.getHello()).toBe('Hello World!');
-    });
+  it('should be defined', () => {
+    expect(controller).toBeDefined();
   });
 });

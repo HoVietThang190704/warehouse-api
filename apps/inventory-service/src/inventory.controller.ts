@@ -1,35 +1,51 @@
-import { Controller, Get, Post, Body, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  Headers,
+} from '@nestjs/common';
 import { InventoryService } from './inventory.service';
-import { CreateIngredientDto } from './dto/create-ingredient.dto';
-import { CreateTransactionDto } from './dto/create-transaction.dto';
-import { TransactionQueryDto } from './dto/transaction-query.dto';
+import { StockReceiptDto, StockIssueDto, StockQueryDto } from './dto/stock-operation.dto';
 
 @Controller('inventory')
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
-  @Get('ingredients')
-  getIngredients() {
-    return this.inventoryService.getIngredients();
+  @Get('warehouses')
+  getWarehouses() {
+    return this.inventoryService.getWarehouses();
   }
 
-  @Post('ingredients')
-  createIngredient(@Body() dto: CreateIngredientDto) {
-    return this.inventoryService.createIngredient(dto);
+  @Get('balances')
+  getStockBalances(@Query() query: StockQueryDto) {
+    return this.inventoryService.getStockBalances(query);
   }
 
-  @Get('alerts')
-  getAlerts() {
-    return this.inventoryService.getAlerts();
+  @Get('kpis')
+  getDashboardKpis(@Query('warehouseId') warehouseId?: string) {
+    return this.inventoryService.getDashboardKpis(warehouseId);
   }
 
-  @Post('transactions')
-  createTransaction(@Body() dto: CreateTransactionDto) {
-    return this.inventoryService.createTransaction(dto);
+  @Get('documents')
+  getDocuments(@Query('warehouseId') warehouseId?: string) {
+    return this.inventoryService.getDocuments(warehouseId);
   }
 
-  @Get('transactions')
-  getTransactions(@Query() query: TransactionQueryDto) {
-    return this.inventoryService.getTransactions(query);
+  @Post('receipts')
+  recordStockReceipt(
+    @Body() dto: StockReceiptDto,
+    @Headers('x-user-id') userId?: string,
+  ) {
+    return this.inventoryService.recordStockReceipt(dto, userId);
+  }
+
+  @Post('issues')
+  recordStockIssue(
+    @Body() dto: StockIssueDto,
+    @Headers('x-user-id') userId?: string,
+  ) {
+    return this.inventoryService.recordStockIssue(dto, userId);
   }
 }

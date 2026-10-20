@@ -4,179 +4,422 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
-import { CreateIngredientDto } from './dto/create-ingredient.dto';
-import { CreateTransactionDto } from './dto/create-transaction.dto';
-import { TransactionQueryDto } from './dto/transaction-query.dto';
-import { TransactionType, TransactionReason, Prisma } from '@prisma/client';
+import { StockReceiptDto, StockIssueDto, StockQueryDto } from './dto/stock-operation.dto';
+import { StockDocumentType, DocumentStatus, MovementType, Prisma } from '@prisma/client';
 
 @Injectable()
 export class InventoryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private generateCode(type: TransactionType): string {
-    const prefix = type === TransactionType.IN ? 'PNK' : 'PXK';
+  private generateCode(type: 'IN' | 'OUT'): string {
+    const prefix = type === 'IN' ? 'PNK' : 'PXK';
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
     const rand = Math.floor(1000 + Math.random() * 9000);
     return `${prefix}-${dateStr}-${rand}`;
   }
 
-  async getIngredients() {
-    const items = await this.prisma.ingredient.findMany({
+  private async resolveWarehouseId(providedId?: string): Promise<string> {
+    if (providedId) {
+      return providedId;
+    }
+    const defaultWarehouse = await this.prisma.warehouse.findFirst({
+      where: { isDefault: true, isActive: true },
+    });
+    if (defaultWarehouse) {
+      return defaultWarehouse.id;
+    }
+    const anyWarehouse = await this.prisma.warehouse.findFirst({
       where: { isActive: true },
-      orderBy: { createdAt: 'desc' },
+    });
+    if (!anyWarehouse) {
+      throw new NotFoundException('Không tìm thấy kho hàng hoạt động nào trong hệ thống!');
+    }
+    return anyWarehouse.id;
+  }
+
+  // 1. Lấy danh sách kho hàng
+  async getWarehouses() {
+    return this.prisma.warehouse.findMany({
+      where: { isActive: true },
+      include: { branch: true },
+      orderBy: { isDefault: 'desc' },
+    });
+  }
+
+  // 2. Lấy sổ số dư tồn kho (Stock Balances)
+  async getStockBalances(query: StockQueryDto) {
+    const warehouseId = await this.resolveWarehouseId(query.warehouseId);
+
+    const balances = await this.prisma.stockBalance.findMany({
+      where: {
+        warehouseId,
+        ...(query.search
+          ? {
+              product: {
+                OR: [
+                  { name: { contains: query.search, mode: 'insensitive' } },
+                  { sku: { contains: query.search, mode: 'insensitive' } },
+                  { barcode: { contains: query.search, mode: 'insensitive' } },
+                ],
+              },
+            }
+          : {}),
+      },
       include: {
-        _count: {
-          select: { transactions: true },
+        warehouse: true,
+        product: {
+          include: {
+            category: true,
+            baseUnit: true,
+          },
         },
       },
+      orderBy: { updatedAt: 'desc' },
     });
 
-    return items.map((item) => {
-      const stock = Number(item.currentStock);
-      const min = Number(item.minStock);
+    const mapped = balances.map((b) => {
+      const quantity = Number(b.quantity);
+      const minStock = Number(b.product?.minStock ?? 5);
+      const isLowStock = quantity <= minStock;
+      const isOutOfStock = quantity <= 0;
 
-      let status: 'OUT_OF_STOCK' | 'LOW_STOCK' | 'SAFE' = 'SAFE';
-      if (stock <= 0) {
+      let status: 'OUT_OF_STOCK' | 'LOW_STOCK' | 'HEALTHY' = 'HEALTHY';
+      if (isOutOfStock) {
         status = 'OUT_OF_STOCK';
-      } else if (stock <= min) {
+      } else if (isLowStock) {
         status = 'LOW_STOCK';
       }
 
       return {
-        ...item,
-        currentStock: stock,
-        minStock: min,
-        costPrice: Number(item.costPrice),
+        id: b.id,
+        warehouseId: b.warehouseId,
+        warehouseName: b.warehouse?.name,
+        productId: b.productId,
+        productName: b.product?.name,
+        productSku: b.product?.sku,
+        productBarcode: b.product?.barcode,
+        productImage: b.product?.imageUrl,
+        categoryName: b.product?.category?.name,
+        unitName: b.product?.baseUnit?.name ?? 'Cái',
+        quantity,
+        averageUnitCost: Number(b.averageUnitCost),
+        minStock,
         status,
-        isAlert: status !== 'SAFE',
+        isLowStock,
+        updatedAt: b.updatedAt,
+      };
+    });
+
+    if (query.lowStockOnly === true || query.lowStockOnly === 'true') {
+      return mapped.filter((item) => item.isLowStock);
+    }
+
+    return mapped;
+  }
+
+  // 3. Nhập kho (Stock Receipt)
+  async recordStockReceipt(dto: StockReceiptDto, userId?: string) {
+    const warehouseId = await this.resolveWarehouseId(dto.warehouseId);
+
+    const product = await this.prisma.product.findUnique({
+      where: { id: dto.productId },
+      include: { baseUnit: true },
+    });
+    if (!product) {
+      throw new NotFoundException(`Không tìm thấy hàng hóa với ID ${dto.productId}`);
+    }
+
+    const qty = Number(dto.quantity);
+    if (qty <= 0) {
+      throw new BadRequestException('Số lượng nhập phải lớn hơn 0');
+    }
+    const unitCost = Number(dto.unitCost ?? product.costPrice ?? 0);
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Find existing balance
+      const existingBalance = await tx.stockBalance.findUnique({
+        where: {
+          warehouseId_productId: {
+            warehouseId,
+            productId: dto.productId,
+          },
+        },
+      });
+
+      const currentQty = existingBalance ? Number(existingBalance.quantity) : 0;
+      const newQty = currentQty + qty;
+
+      // 2. Upsert balance
+      const updatedBalance = await tx.stockBalance.upsert({
+        where: {
+          warehouseId_productId: {
+            warehouseId,
+            productId: dto.productId,
+          },
+        },
+        update: {
+          quantity: new Prisma.Decimal(newQty),
+          averageUnitCost: unitCost > 0 ? new Prisma.Decimal(unitCost) : undefined,
+        },
+        create: {
+          warehouseId,
+          productId: dto.productId,
+          quantity: new Prisma.Decimal(newQty),
+          averageUnitCost: new Prisma.Decimal(unitCost),
+        },
+      });
+
+      // 3. Create posted document
+      const docCode = this.generateCode('IN');
+      const doc = await tx.stockDocument.create({
+        data: {
+          code: docCode,
+          warehouseId,
+          type: StockDocumentType.PURCHASE_RECEIPT,
+          status: DocumentStatus.POSTED,
+          note: dto.note || 'Nhập hàng vào kho',
+          createdBy: userId,
+          postedBy: userId,
+          postedAt: new Date(),
+        },
+      });
+
+      // 4. Create document item
+      const docItem = await tx.stockDocumentItem.create({
+        data: {
+          stockDocumentId: doc.id,
+          productId: dto.productId,
+          quantity: new Prisma.Decimal(qty),
+          unitCost: new Prisma.Decimal(unitCost),
+          lineTotal: new Prisma.Decimal(qty * unitCost),
+        },
+      });
+
+      // 5. Create immutable movement
+      await tx.stockMovement.create({
+        data: {
+          warehouseId,
+          productId: dto.productId,
+          stockDocumentItemId: docItem.id,
+          movementType: MovementType.IN,
+          quantityDelta: new Prisma.Decimal(qty),
+          unitCost: new Prisma.Decimal(unitCost),
+        },
+      });
+
+      return {
+        success: true,
+        documentCode: doc.code,
+        productId: dto.productId,
+        productName: product.name,
+        quantityAdded: qty,
+        newBalance: Number(updatedBalance.quantity),
       };
     });
   }
 
-  async createIngredient(dto: CreateIngredientDto) {
-    const existing = await this.prisma.ingredient.findUnique({
-      where: { code: dto.code },
+  // 4. Xuất kho (Stock Issue - chặn xuất âm tuyệt đối)
+  async recordStockIssue(dto: StockIssueDto, userId?: string) {
+    const warehouseId = await this.resolveWarehouseId(dto.warehouseId);
+
+    const product = await this.prisma.product.findUnique({
+      where: { id: dto.productId },
+      include: { baseUnit: true },
     });
-    if (existing) {
-      throw new BadRequestException(`Mã nguyên liệu "${dto.code}" đã tồn tại!`);
+    if (!product) {
+      throw new NotFoundException(`Không tìm thấy hàng hóa với ID ${dto.productId}`);
     }
 
-    const initialQty =
-      dto.initialStock && dto.initialStock > 0 ? dto.initialStock : 0;
+    const qty = Number(dto.quantity);
+    if (qty <= 0) {
+      throw new BadRequestException('Số lượng xuất phải lớn hơn 0');
+    }
 
     return this.prisma.$transaction(async (tx) => {
-      const ingredient = await tx.ingredient.create({
-        data: {
-          code: dto.code.trim().toUpperCase(),
-          name: dto.name.trim(),
-          unit: dto.unit.trim(),
-          costPrice: dto.costPrice,
-          minStock: dto.minStock,
-          currentStock: initialQty,
+      // 1. Kiểm tra tồn hiện có
+      const existingBalance = await tx.stockBalance.findUnique({
+        where: {
+          warehouseId_productId: {
+            warehouseId,
+            productId: dto.productId,
+          },
         },
       });
 
-      if (initialQty > 0) {
-        await tx.inventoryTransaction.create({
-          data: {
-            code: this.generateCode(TransactionType.IN),
-            type: TransactionType.IN,
-            reason: TransactionReason.INITIAL_STOCK,
-            ingredientId: ingredient.id,
-            quantity: initialQty,
-            unitPrice: dto.costPrice,
-            totalAmount: Number(initialQty) * Number(dto.costPrice),
-            note: 'Khởi tạo số lượng tồn ban đầu',
-            createdBy: 'SYSTEM_INIT',
-          },
-        });
+      const currentQty = existingBalance ? Number(existingBalance.quantity) : 0;
+
+      // Chặn xuất âm tuyệt đối
+      if (currentQty < qty) {
+        throw new BadRequestException(
+          `Số lượng tồn kho không đủ để xuất! Tồn khả dụng: ${currentQty} ${product.baseUnit?.name || 'đơn vị'}, yêu cầu xuất: ${qty}`,
+        );
       }
 
-      return ingredient;
-    });
-  }
+      const newQty = currentQty - qty;
+      const unitCost = Number(existingBalance?.averageUnitCost ?? product.costPrice ?? 0);
 
-  async createTransaction(dto: CreateTransactionDto) {
-    const ingredient = await this.prisma.ingredient.findUnique({
-      where: { id: dto.ingredientId },
-    });
-    if (!ingredient) {
-      throw new NotFoundException(
-        `Không tìm thấy nguyên liệu có ID "${dto.ingredientId}"`,
-      );
-    }
+      // 2. Cập nhật giảm số dư
+      const updatedBalance = await tx.stockBalance.upsert({
+        where: {
+          warehouseId_productId: {
+            warehouseId,
+            productId: dto.productId,
+          },
+        },
+        update: {
+          quantity: new Prisma.Decimal(newQty),
+        },
+        create: {
+          warehouseId,
+          productId: dto.productId,
+          quantity: new Prisma.Decimal(0),
+        },
+      });
 
-    const currentStock = Number(ingredient.currentStock);
-    const qty = Number(dto.quantity);
-
-    if (dto.type === TransactionType.OUT && currentStock < qty) {
-      throw new BadRequestException(
-        `Số lượng tồn không đủ để xuất! Tồn hiện tại: ${currentStock} ${ingredient.unit}, yêu cầu xuất: ${qty} ${ingredient.unit}`,
-      );
-    }
-
-    const unitPrice =
-      dto.unitPrice !== undefined
-        ? Number(dto.unitPrice)
-        : Number(ingredient.costPrice);
-    const totalAmount = qty * unitPrice;
-    const code = this.generateCode(dto.type);
-
-    return this.prisma.$transaction(async (tx) => {
-      const transaction = await tx.inventoryTransaction.create({
+      // 3. Tạo chứng từ xuất kho đã duyệt
+      const docCode = this.generateCode('OUT');
+      const doc = await tx.stockDocument.create({
         data: {
-          code,
-          type: dto.type,
-          reason: dto.reason,
-          ingredientId: dto.ingredientId,
-          quantity: qty,
-          unitPrice,
-          totalAmount,
-          note: dto.note,
-          createdBy: dto.createdBy || 'ADMIN',
-        },
-        include: {
-          ingredient: true,
+          code: docCode,
+          warehouseId,
+          type: StockDocumentType.MANUAL_OUT,
+          status: DocumentStatus.POSTED,
+          note: dto.note || dto.reason || 'Xuất kho hàng hóa',
+          createdBy: userId,
+          postedBy: userId,
+          postedAt: new Date(),
         },
       });
 
-      const updatedStock =
-        dto.type === TransactionType.IN
-          ? currentStock + qty
-          : currentStock - qty;
-
-      await tx.ingredient.update({
-        where: { id: dto.ingredientId },
-        data: { currentStock: updatedStock },
+      // 4. Tạo chi tiết chứng từ
+      const docItem = await tx.stockDocumentItem.create({
+        data: {
+          stockDocumentId: doc.id,
+          productId: dto.productId,
+          quantity: new Prisma.Decimal(qty),
+          unitCost: new Prisma.Decimal(unitCost),
+          lineTotal: new Prisma.Decimal(qty * unitCost),
+        },
       });
 
-      return transaction;
+      // 5. Ghi sổ cái biến động (Movement ledger: âm)
+      await tx.stockMovement.create({
+        data: {
+          warehouseId,
+          productId: dto.productId,
+          stockDocumentItemId: docItem.id,
+          movementType: MovementType.OUT,
+          quantityDelta: new Prisma.Decimal(-qty),
+          unitCost: new Prisma.Decimal(unitCost),
+        },
+      });
+
+      const minStock = Number(product.minStock ?? 5);
+      const isLowStock = newQty <= minStock;
+
+      return {
+        success: true,
+        documentCode: doc.code,
+        productId: dto.productId,
+        productName: product.name,
+        quantityIssued: qty,
+        newBalance: Number(updatedBalance.quantity),
+        isLowStock,
+        warning: isLowStock
+          ? `CẢNH BÁO: Mặt hàng "${product.name}" hiện chỉ còn ${newQty} (dưới ngưỡng tối thiểu ${minStock})!`
+          : null,
+      };
     });
   }
 
-  async getTransactions(query: TransactionQueryDto) {
-    const where: Prisma.InventoryTransactionWhereInput = {};
-    if (query.type) where.type = query.type;
-    if (query.ingredientId) where.ingredientId = query.ingredientId;
+  // 5. KPIs Dashboard
+  async getDashboardKpis(warehouseId?: string) {
+    const resolvedWarehouseId = await this.resolveWarehouseId(warehouseId);
 
-    return this.prisma.inventoryTransaction.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
+    const [totalProducts, balances, recentMovements] = await Promise.all([
+      this.prisma.product.count({ where: { isActive: true } }),
+      this.prisma.stockBalance.findMany({
+        where: { warehouseId: resolvedWarehouseId },
+        include: { product: true },
+      }),
+      this.prisma.stockMovement.findMany({
+        where: { warehouseId: resolvedWarehouseId },
+        include: {
+          product: { include: { baseUnit: true } },
+          stockDocumentItem: { include: { stockDocument: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 8,
+      }),
+    ]);
+
+    let totalStockUnits = 0;
+    let lowStockCount = 0;
+    let outOfStockCount = 0;
+    const lowStockItems: any[] = [];
+
+    for (const b of balances) {
+      const qty = Number(b.quantity);
+      const minStock = Number(b.product?.minStock ?? 5);
+      totalStockUnits += qty;
+
+      if (qty <= 0) {
+        outOfStockCount++;
+        lowStockItems.push({
+          id: b.productId,
+          name: b.product.name,
+          sku: b.product.sku,
+          quantity: qty,
+          minStock,
+          status: 'OUT_OF_STOCK',
+        });
+      } else if (qty <= minStock) {
+        lowStockCount++;
+        lowStockItems.push({
+          id: b.productId,
+          name: b.product.name,
+          sku: b.product.sku,
+          quantity: qty,
+          minStock,
+          status: 'LOW_STOCK',
+        });
+      }
+    }
+
+    return {
+      totalProducts,
+      totalStockUnits,
+      lowStockCount: lowStockCount + outOfStockCount,
+      outOfStockCount,
+      lowStockItems,
+      recentMovements: recentMovements.map((m) => ({
+        id: m.id,
+        code: m.stockDocumentItem?.stockDocument?.code,
+        type: m.movementType,
+        productName: m.product.name,
+        productSku: m.product.sku,
+        unit: m.product.baseUnit?.name ?? 'Cái',
+        quantity: Math.abs(Number(m.quantityDelta)),
+        createdAt: m.createdAt,
+      })),
+    };
+  }
+
+  // 6. Lịch sử chứng từ (Documents)
+  async getDocuments(warehouseId?: string) {
+    const resolvedWarehouseId = await this.resolveWarehouseId(warehouseId);
+    return this.prisma.stockDocument.findMany({
+      where: { warehouseId: resolvedWarehouseId },
       include: {
-        ingredient: {
-          select: {
-            code: true,
-            name: true,
-            unit: true,
+        items: {
+          include: {
+            product: { include: { baseUnit: true } },
           },
         },
       },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
     });
-  }
-
-  async getAlerts() {
-    const ingredients = await this.getIngredients();
-    return ingredients.filter((item) => item.isAlert);
   }
 }

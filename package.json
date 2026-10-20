@@ -1,11 +1,12 @@
 {
-  "name": "sushi-api",
+  "name": "warehouse-api",
   "version": "0.0.1",
-  "description": "Backend services for Sushi Platform",
+  "description": "Backend services for Warehouse Platform",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
+    "dev": "concurrently -n gateway,identity,catalog,inventory -c blue,green,yellow,magenta \"pnpm start:gateway:dev\" \"pnpm start:identity:dev\" \"pnpm start:catalog:dev\" \"pnpm start:inventory:dev\"",
     "build": "nest build api-gateway && nest build identity-service && nest build catalog-service && nest build inventory-service",
     "build:gateway": "nest build api-gateway",
     "build:identity": "nest build identity-service",
@@ -57,6 +58,7 @@
     "@types/multer": "^2.3.0",
     "@types/node": "^24.0.0",
     "@types/supertest": "^7.0.0",
+    "concurrently": "^10.0.6",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
@@ -96,7 +98,12 @@
     "coverageDirectory": "./coverage",
     "testEnvironment": "node",
     "roots": [
-      "<rootDir>/apps/"
-    ]
+      "<rootDir>/apps/",
+      "<rootDir>/libs/"
+    ],
+    "moduleNameMapper": {
+      "^@common$": "<rootDir>/libs/common/src",
+      "^@common/(.*)$": "<rootDir>/libs/common/src/$1"
+    }
   }
 }

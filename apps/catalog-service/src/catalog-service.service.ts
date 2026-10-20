@@ -14,22 +14,9 @@ export class CatalogServiceService {
 
   // 1. Quản lý Danh mục (Categories)
   async createCategory(dto: CreateCategoryDto) {
-    if (dto.parentId) {
-      const parent = await this.prisma.productCategory.findUnique({
-        where: { id: dto.parentId },
-      });
-      if (!parent) {
-        throw new NotFoundException('Parent category not found');
-      }
-    }
-
     return this.prisma.productCategory.create({
       data: {
         name: dto.name,
-        parentId: dto.parentId,
-      },
-      include: {
-        parent: true,
       },
     });
   }
@@ -37,7 +24,6 @@ export class CatalogServiceService {
   async getCategories() {
     return this.prisma.productCategory.findMany({
       include: {
-        children: true,
         _count: {
           select: { products: true },
         },
@@ -46,7 +32,14 @@ export class CatalogServiceService {
     });
   }
 
-  // 2. Quản lý Sản phẩm (Products)
+  // 2. Quản lý Đơn vị tính (Units)
+  async getUnits() {
+    return this.prisma.unit.findMany({
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  // 3. Quản lý Sản phẩm (Products)
   async createProduct(dto: CreateProductDto) {
     const existingProduct = await this.prisma.product.findUnique({
       where: { sku: dto.sku.toUpperCase() },
@@ -67,30 +60,62 @@ export class CatalogServiceService {
       }
     }
 
+    // Resolve or fallback baseUnitId
+    let baseUnitId = dto.baseUnitId;
+    if (!baseUnitId) {
+      const firstUnit = await this.prisma.unit.findFirst({
+        orderBy: { code: 'asc' },
+      });
+      if (!firstUnit) {
+        const defaultUnit = await this.prisma.unit.create({
+          data: { code: 'CAI', name: 'Cái', dimension: 'COUNT' },
+        });
+        baseUnitId = defaultUnit.id;
+      } else {
+        baseUnitId = firstUnit.id;
+      }
+    }
+
     return this.prisma.product.create({
       data: {
         sku: dto.sku.toUpperCase(),
         barcode: dto.barcode,
         name: dto.name,
-        type: dto.type,
         categoryId: dto.categoryId,
-        sellingPrice: new Prisma.Decimal(dto.sellingPrice),
+        baseUnitId,
+        minStock: new Prisma.Decimal(dto.minStock ?? 5),
+        costPrice: new Prisma.Decimal(dto.costPrice ?? 0),
+        sellingPrice: new Prisma.Decimal(dto.sellingPrice ?? 0),
         imageUrl: dto.imageUrl,
       },
       include: {
         category: true,
+        baseUnit: true,
       },
     });
   }
 
-  async getProducts(categoryId?: string) {
+  async getProducts(categoryId?: string, search?: string) {
     return this.prisma.product.findMany({
       where: {
         isActive: true,
         ...(categoryId ? { categoryId } : {}),
+        ...(search
+          ? {
+              OR: [
+                { name: { contains: search, mode: 'insensitive' } },
+                { sku: { contains: search, mode: 'insensitive' } },
+                { barcode: { contains: search, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
       },
       include: {
         category: true,
+        baseUnit: true,
+        stockBalances: {
+          include: { warehouse: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -101,10 +126,9 @@ export class CatalogServiceService {
       where: { id },
       include: {
         category: true,
-        comboItemsAsParent: {
-          include: {
-            childProduct: true,
-          },
+        baseUnit: true,
+        stockBalances: {
+          include: { warehouse: true },
         },
       },
     });
