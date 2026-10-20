@@ -1,0 +1,234 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["identity", "inventory"]
+}
+
+// ==========================================
+// SCHEMA: identity
+// ==========================================
+
+enum UserRole {
+  SUPER_ADMIN
+  WAREHOUSE_MANAGER
+  WAREHOUSE_STAFF
+
+  @@schema("identity")
+}
+
+model User {
+  id           String         @id @default(uuid()) @db.Uuid
+  email        String         @unique
+  passwordHash String         @map("password_hash")
+  fullName     String         @map("full_name")
+  role         UserRole       @default(WAREHOUSE_STAFF)
+  branchId     String?        @map("branch_id") @db.Uuid
+  isActive     Boolean        @default(true) @map("is_active")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+  @@schema("identity")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  userId    String    @map("user_id") @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("refresh_tokens")
+  @@schema("identity")
+}
+
+// ==========================================
+// SCHEMA: inventory
+// ==========================================
+
+model Branch {
+  id        String      @id @default(uuid()) @db.Uuid
+  code      String      @unique @db.VarChar(30)
+  name      String      @db.VarChar(150)
+  address   String?     @db.Text
+  phone     String?     @db.VarChar(30)
+  isActive  Boolean     @default(true) @map("is_active")
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+
+  warehouses Warehouse[]
+
+  @@map("branches")
+  @@schema("inventory")
+}
+
+model Warehouse {
+  id        String      @id @default(uuid()) @db.Uuid
+  branchId  String      @map("branch_id") @db.Uuid
+  branch    Branch      @relation(fields: [branchId], references: [id])
+  code      String      @unique @db.VarChar(30)
+  name      String      @db.VarChar(150)
+  isDefault Boolean     @default(false) @map("is_default")
+  isActive  Boolean     @default(true) @map("is_active")
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+
+  stockBalances   StockBalance[]
+  stockDocuments  StockDocument[]
+  stockMovements  StockMovement[]
+
+  @@map("warehouses")
+  @@schema("inventory")
+}
+
+model Unit {
+  id        String    @id @default(uuid()) @db.Uuid
+  code      String    @unique @db.VarChar(20)
+  name      String    @db.VarChar(80)
+  dimension String    @default("COUNT") @db.VarChar(30)
+
+  products  Product[]
+
+  @@map("units")
+  @@schema("inventory")
+}
+
+model ProductCategory {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @db.VarChar(100)
+  products  Product[]
+
+  @@map("product_categories")
+  @@schema("inventory")
+}
+
+model Product {
+  id           String           @id @default(uuid()) @db.Uuid
+  sku          String           @unique @db.VarChar(60)
+  barcode      String?          @unique @db.VarChar(100)
+  name         String           @db.VarChar(160)
+  categoryId   String?          @map("category_id") @db.Uuid
+  category     ProductCategory? @relation(fields: [categoryId], references: [id])
+  baseUnitId   String           @map("base_unit_id") @db.Uuid
+  baseUnit     Unit             @relation(fields: [baseUnitId], references: [id])
+  minStock     Decimal          @default(5) @map("min_stock") @db.Decimal(18, 3)
+  costPrice    Decimal          @default(0) @map("cost_price") @db.Decimal(18, 2)
+  sellingPrice Decimal          @default(0) @map("selling_price") @db.Decimal(18, 2)
+  imageUrl     String?          @map("image_url") @db.Text
+  isActive     Boolean          @default(true) @map("is_active")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  stockBalances      StockBalance[]
+  stockDocumentItems StockDocumentItem[]
+  stockMovements     StockMovement[]
+
+  @@map("products")
+  @@schema("inventory")
+}
+
+model StockBalance {
+  id              String    @id @default(uuid()) @db.Uuid
+  warehouseId     String    @map("warehouse_id") @db.Uuid
+  warehouse       Warehouse @relation(fields: [warehouseId], references: [id])
+  productId       String    @map("product_id") @db.Uuid
+  product         Product   @relation(fields: [productId], references: [id])
+  quantity        Decimal   @default(0) @db.Decimal(18, 3)
+  averageUnitCost Decimal   @default(0) @map("average_unit_cost") @db.Decimal(18, 6)
+  version         Int       @default(0)
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@unique([warehouseId, productId])
+  @@map("stock_balances")
+  @@schema("inventory")
+}
+
+enum DocumentStatus {
+  DRAFT
+  POSTED
+  VOIDED
+
+  @@schema("inventory")
+}
+
+enum StockDocumentType {
+  PURCHASE_RECEIPT
+  MANUAL_IN
+  MANUAL_OUT
+  SALES_ISSUE
+  OPENING_BALANCE
+  ADJUSTMENT
+
+  @@schema("inventory")
+}
+
+model StockDocument {
+  id             String            @id @default(uuid()) @db.Uuid
+  code           String            @unique @db.VarChar(50)
+  warehouseId    String            @map("warehouse_id") @db.Uuid
+  warehouse      Warehouse         @relation(fields: [warehouseId], references: [id])
+  type           StockDocumentType
+  status         DocumentStatus    @default(DRAFT)
+  idempotencyKey String?           @unique @map("idempotency_key") @db.VarChar(100)
+  note           String?           @db.Text
+  createdBy      String?           @map("created_by") @db.Uuid
+  postedBy       String?           @map("posted_by") @db.Uuid
+  createdAt      DateTime          @default(now()) @map("created_at")
+  postedAt       DateTime?         @map("posted_at")
+
+  items          StockDocumentItem[]
+
+  @@map("stock_documents")
+  @@schema("inventory")
+}
+
+model StockDocumentItem {
+  id              String        @id @default(uuid()) @db.Uuid
+  stockDocumentId String        @map("stock_document_id") @db.Uuid
+  stockDocument   StockDocument @relation(fields: [stockDocumentId], references: [id], onDelete: Cascade)
+  productId       String        @map("product_id") @db.Uuid
+  product         Product       @relation(fields: [productId], references: [id])
+  quantity        Decimal       @db.Decimal(18, 3)
+  unitCost        Decimal       @default(0) @map("unit_cost") @db.Decimal(18, 6)
+  lineTotal       Decimal       @default(0) @map("line_total") @db.Decimal(18, 2)
+
+  movement        StockMovement?
+
+  @@map("stock_document_items")
+  @@schema("inventory")
+}
+
+enum MovementType {
+  IN
+  OUT
+  REVERSAL
+
+  @@schema("inventory")
+}
+
+model StockMovement {
+  id                  String            @id @default(uuid()) @db.Uuid
+  warehouseId         String            @map("warehouse_id") @db.Uuid
+  warehouse           Warehouse         @relation(fields: [warehouseId], references: [id])
+  productId           String            @map("product_id") @db.Uuid
+  product             Product           @relation(fields: [productId], references: [id])
+  stockDocumentItemId String            @unique @map("stock_document_item_id") @db.Uuid
+  stockDocumentItem   StockDocumentItem @relation(fields: [stockDocumentItemId], references: [id])
+  movementType        MovementType      @map("movement_type")
+  quantityDelta       Decimal           @map("quantity_delta") @db.Decimal(18, 3)
+  unitCost            Decimal           @map("unit_cost") @db.Decimal(18, 6)
+  createdAt           DateTime          @default(now()) @map("created_at")
+
+  @@index([warehouseId, productId, createdAt])
+  @@map("stock_movements")
+  @@schema("inventory")
+}
