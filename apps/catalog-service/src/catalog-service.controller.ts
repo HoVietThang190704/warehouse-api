@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Put,
+  Delete,
   Body,
   Param,
   Query,
@@ -12,7 +14,9 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CatalogServiceService } from './catalog-service.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
+import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CreateProductDto } from './dto/create-product.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from './guards/roles.decorator';
 import { CloudinaryService } from '@common';
@@ -50,6 +54,28 @@ export class CatalogServiceController {
     return this.catalogService.getCategories();
   }
 
+  @Get('categories/:id')
+  async getCategoryById(@Param('id') id: string) {
+    return this.catalogService.getCategoryById(id);
+  }
+
+  @Put('categories/:id')
+  @Roles('SUPER_ADMIN', 'WAREHOUSE_MANAGER')
+  @UseGuards(RolesGuard)
+  async updateCategory(
+    @Param('id') id: string,
+    @Body() dto: UpdateCategoryDto,
+  ) {
+    return this.catalogService.updateCategory(id, dto);
+  }
+
+  @Delete('categories/:id')
+  @Roles('SUPER_ADMIN', 'WAREHOUSE_MANAGER')
+  @UseGuards(RolesGuard)
+  async deleteCategory(@Param('id') id: string) {
+    return this.catalogService.deleteCategory(id);
+  }
+
   @Get('units')
   async getUnits() {
     return this.catalogService.getUnits();
@@ -77,5 +103,15 @@ export class CatalogServiceController {
   @Get('products/:id')
   async getProductById(@Param('id') id: string) {
     return this.catalogService.getProductById(id);
+  }
+
+  @Put('products/:id')
+  @Roles('SUPER_ADMIN', 'WAREHOUSE_MANAGER')
+  @UseGuards(RolesGuard)
+  async updateProduct(
+    @Param('id') id: string,
+    @Body() dto: UpdateProductDto,
+  ) {
+    return this.catalogService.updateProduct(id, dto);
   }
 }

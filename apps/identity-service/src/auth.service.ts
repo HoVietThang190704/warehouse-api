@@ -85,6 +85,29 @@ export class AuthService {
     };
   }
 
+  private getJwtSecret(): string {
+    const secret =
+      this.configService.get<string>('JWT_SECRET') ||
+      this.configService.get<string>('ACCESS_TOKEN_SECRET') ||
+      process.env.JWT_SECRET;
+    if (!secret) {
+      throw new BadRequestException('JWT_SECRET is not configured');
+    }
+    return secret;
+  }
+
+  private getJwtRefreshSecret(): string {
+    const secret =
+      this.configService.get<string>('JWT_REFRESH_SECRET') ||
+      this.configService.get<string>('REFRESH_TOKEN_SECRET') ||
+      process.env.JWT_REFRESH_SECRET ||
+      process.env.REFRESH_TOKEN_SECRET;
+    if (!secret) {
+      throw new BadRequestException('JWT_REFRESH_SECRET is not configured');
+    }
+    return secret;
+  }
+
   async generateTokens(
     userId: string,
     email: string,
@@ -98,9 +121,8 @@ export class AuthService {
       branchId: branchId || null,
     };
 
-    const jwtSecret = this.configService.get<string>('JWT_SECRET');
-    const jwtRefreshSecret =
-      this.configService.get<string>('JWT_REFRESH_SECRET');
+    const jwtSecret = this.getJwtSecret();
+    const jwtRefreshSecret = this.getJwtRefreshSecret();
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
@@ -152,10 +174,14 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token is required');
     }
 
-    let payload: { sub: string; email: string; role: string; branchId?: string | null };
+    let payload: {
+      sub: string;
+      email: string;
+      role: string;
+      branchId?: string | null;
+    };
     try {
-      const jwtRefreshSecret =
-        this.configService.get<string>('JWT_REFRESH_SECRET');
+      const jwtRefreshSecret = this.getJwtRefreshSecret();
       payload = this.jwtService.verify(rawRefreshToken, {
         secret: jwtRefreshSecret,
       });
@@ -218,8 +244,7 @@ export class AuthService {
     if (!rawRefreshToken) return;
 
     try {
-      const jwtRefreshSecret =
-        this.configService.get<string>('JWT_REFRESH_SECRET');
+      const jwtRefreshSecret = this.getJwtRefreshSecret();
       const payload = this.jwtService.verify(rawRefreshToken, {
         secret: jwtRefreshSecret,
       });

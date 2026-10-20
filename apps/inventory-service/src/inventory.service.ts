@@ -172,6 +172,7 @@ export class InventoryService {
 
       // 3. Create posted document
       const docCode = this.generateCode('IN');
+      const validUserId = userId && userId.trim() ? userId.trim() : null;
       const doc = await tx.stockDocument.create({
         data: {
           code: docCode,
@@ -179,8 +180,8 @@ export class InventoryService {
           type: StockDocumentType.PURCHASE_RECEIPT,
           status: DocumentStatus.POSTED,
           note: dto.note || 'Nhập hàng vào kho',
-          createdBy: userId,
-          postedBy: userId,
+          createdBy: validUserId,
+          postedBy: validUserId,
           postedAt: new Date(),
         },
       });
@@ -279,6 +280,7 @@ export class InventoryService {
 
       // 3. Tạo chứng từ xuất kho đã duyệt
       const docCode = this.generateCode('OUT');
+      const validUserId = userId && userId.trim() ? userId.trim() : null;
       const doc = await tx.stockDocument.create({
         data: {
           code: docCode,
@@ -286,8 +288,8 @@ export class InventoryService {
           type: StockDocumentType.MANUAL_OUT,
           status: DocumentStatus.POSTED,
           note: dto.note || dto.reason || 'Xuất kho hàng hóa',
-          createdBy: userId,
-          postedBy: userId,
+          createdBy: validUserId,
+          postedBy: validUserId,
           postedAt: new Date(),
         },
       });
@@ -357,7 +359,14 @@ export class InventoryService {
     let totalStockUnits = 0;
     let lowStockCount = 0;
     let outOfStockCount = 0;
-    const lowStockItems: any[] = [];
+    const lowStockItems: Array<{
+      id: string;
+      name: string;
+      sku: string;
+      quantity: number;
+      minStock: number;
+      status: 'OUT_OF_STOCK' | 'LOW_STOCK';
+    }> = [];
 
     for (const b of balances) {
       const qty = Number(b.quantity);
@@ -387,29 +396,62 @@ export class InventoryService {
       }
     }
 
+    const movementUserIds = Array.from(
+      new Set(
+        recentMovements
+          .map(
+            (m) =>
+              m.stockDocumentItem?.stockDocument?.postedBy ||
+              m.stockDocumentItem?.stockDocument?.createdBy,
+          )
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+
+    const movementUsers = movementUserIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: movementUserIds } },
+          select: { id: true, fullName: true, email: true },
+        })
+      : [];
+
+    const movementUserMap = new Map(
+      movementUsers.map((u) => [u.id, u.fullName || u.email]),
+    );
+
     return {
       totalProducts,
       totalStockUnits,
       lowStockCount: lowStockCount + outOfStockCount,
       outOfStockCount,
       lowStockItems,
-      recentMovements: recentMovements.map((m) => ({
-        id: m.id,
-        code: m.stockDocumentItem?.stockDocument?.code,
-        type: m.movementType,
-        productName: m.product.name,
-        productSku: m.product.sku,
-        unit: m.product.baseUnit?.name ?? 'Cái',
-        quantity: Math.abs(Number(m.quantityDelta)),
-        createdAt: m.createdAt,
-      })),
+      recentMovements: recentMovements.map((m) => {
+        const userId =
+          m.stockDocumentItem?.stockDocument?.postedBy ||
+          m.stockDocumentItem?.stockDocument?.createdBy;
+        const performerName = userId
+          ? movementUserMap.get(userId) || `Người dùng #${userId.slice(0, 8)}`
+          : 'Không xác định';
+
+        return {
+          id: m.id,
+          code: m.stockDocumentItem?.stockDocument?.code,
+          type: m.movementType,
+          productName: m.product.name,
+          productSku: m.product.sku,
+          unit: m.product.baseUnit?.name ?? 'Cái',
+          quantity: Math.abs(Number(m.quantityDelta)),
+          performerName,
+          createdAt: m.createdAt,
+        };
+      }),
     };
   }
 
   // 6. Lịch sử chứng từ (Documents)
   async getDocuments(warehouseId?: string) {
     const resolvedWarehouseId = await this.resolveWarehouseId(warehouseId);
-    return this.prisma.stockDocument.findMany({
+    const documents = await this.prisma.stockDocument.findMany({
       where: { warehouseId: resolvedWarehouseId },
       include: {
         items: {
@@ -420,6 +462,51 @@ export class InventoryService {
       },
       orderBy: { createdAt: 'desc' },
       take: 50,
+    });
+
+    const userIds = Array.from(
+      new Set(
+        documents
+          .flatMap((doc) => [doc.createdBy, doc.postedBy])
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+
+    const users = userIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, fullName: true, email: true },
+        })
+      : [];
+
+    const userMap = new Map(users.map((u) => [u.id, u.fullName || u.email]));
+
+    return documents.map((doc) => {
+      const creatorName = doc.createdBy
+        ? userMap.get(doc.createdBy) || `Người dùng #${doc.createdBy.slice(0, 8)}`
+        : 'Không xác định';
+
+      const posterName = doc.postedBy
+        ? userMap.get(doc.postedBy) || `Người dùng #${doc.postedBy.slice(0, 8)}`
+        : 'Không xác định';
+
+      const totalQuantity = doc.items.reduce(
+        (sum, item) => sum + Number(item.quantity || 0),
+        0,
+      );
+
+      const totalAmount = doc.items.reduce(
+        (sum, item) => sum + Number(item.lineTotal || 0),
+        0,
+      );
+
+      return {
+        ...doc,
+        creatorName,
+        posterName,
+        totalQuantity,
+        totalAmount,
+      };
     });
   }
 }

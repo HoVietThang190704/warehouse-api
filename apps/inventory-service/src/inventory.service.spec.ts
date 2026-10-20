@@ -16,6 +16,7 @@ describe('InventoryService', () => {
     product: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
+      count: jest.fn(),
     },
     stockBalance: {
       findUnique: jest.fn(),
@@ -31,6 +32,9 @@ describe('InventoryService', () => {
     },
     stockMovement: {
       create: jest.fn(),
+      findMany: jest.fn(),
+    },
+    user: {
       findMany: jest.fn(),
     },
     $transaction: jest.fn((callback) => callback(mockPrisma)),
@@ -198,6 +202,104 @@ describe('InventoryService', () => {
       const balances = await service.getStockBalances({ warehouseId });
       expect(balances[0].isLowStock).toBe(true);
       expect(balances[1].isLowStock).toBe(false);
+    });
+  });
+
+  describe('getDocuments', () => {
+    it('should return documents enriched with creatorName and posterName', async () => {
+      const warehouseId = 'warehouse-uuid-1';
+      mockPrisma.warehouse.findFirst.mockResolvedValue({ id: warehouseId });
+
+      mockPrisma.stockDocument.findMany.mockResolvedValue([
+        {
+          id: 'doc-1',
+          code: 'PNK-001',
+          warehouseId,
+          type: 'PURCHASE_RECEIPT',
+          status: 'POSTED',
+          createdBy: 'user-1',
+          postedBy: 'user-1',
+          createdAt: new Date(),
+          items: [
+            {
+              id: 'item-1',
+              productId: 'prod-1',
+              quantity: new Decimal(10),
+              unitCost: new Decimal(1000),
+              lineTotal: new Decimal(10000),
+              product: { name: 'Sản phẩm 1', sku: 'SP01', baseUnit: { name: 'Cái' } },
+            },
+          ],
+        },
+        {
+          id: 'doc-2',
+          code: 'PXK-002',
+          warehouseId,
+          type: 'MANUAL_OUT',
+          status: 'POSTED',
+          createdBy: null,
+          postedBy: null,
+          createdAt: new Date(),
+          items: [],
+        },
+      ]);
+
+      mockPrisma.user.findMany.mockResolvedValue([
+        { id: 'user-1', fullName: 'Nguyễn Văn A', email: 'a@example.com' },
+      ]);
+
+      const docs = await service.getDocuments(warehouseId);
+
+      expect(docs[0].creatorName).toBe('Nguyễn Văn A');
+      expect(docs[0].posterName).toBe('Nguyễn Văn A');
+      expect(docs[1].creatorName).toBe('Không xác định');
+      expect(docs[1].posterName).toBe('Không xác định');
+    });
+  });
+
+  describe('getDashboardKpis with performer name', () => {
+    it('should return recentMovements enriched with performerName', async () => {
+      const warehouseId = 'warehouse-uuid-1';
+      mockPrisma.warehouse.findFirst.mockResolvedValue({ id: warehouseId });
+      mockPrisma.product.count.mockResolvedValue(10);
+      mockPrisma.stockBalance.findMany.mockResolvedValue([]);
+      mockPrisma.stockMovement.findMany.mockResolvedValue([
+        {
+          id: 'mov-1',
+          movementType: 'IN',
+          quantityDelta: new Decimal(5),
+          createdAt: new Date(),
+          product: { name: 'Sản phẩm A', sku: 'SPA', baseUnit: { name: 'Hộp' } },
+          stockDocumentItem: {
+            stockDocument: {
+              code: 'PNK-01',
+              createdBy: 'user-1',
+              postedBy: 'user-1',
+            },
+          },
+        },
+        {
+          id: 'mov-2',
+          movementType: 'OUT',
+          quantityDelta: new Decimal(-2),
+          createdAt: new Date(),
+          product: { name: 'Sản phẩm B', sku: 'SPB', baseUnit: { name: 'Cái' } },
+          stockDocumentItem: {
+            stockDocument: {
+              code: 'PXK-01',
+              createdBy: null,
+              postedBy: null,
+            },
+          },
+        },
+      ]);
+      mockPrisma.user.findMany.mockResolvedValue([
+        { id: 'user-1', fullName: 'Trần Thị B', email: 'b@example.com' },
+      ]);
+
+      const kpis = await service.getDashboardKpis(warehouseId);
+      expect(kpis.recentMovements[0].performerName).toBe('Trần Thị B');
+      expect(kpis.recentMovements[1].performerName).toBe('Không xác định');
     });
   });
 });
