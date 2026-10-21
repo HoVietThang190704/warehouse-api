@@ -51,6 +51,7 @@ describe('InventoryService', () => {
     service = module.get<InventoryService>(InventoryService);
     prisma = module.get<PrismaService>(PrismaService);
     jest.clearAllMocks();
+    mockPrisma.product.findMany.mockResolvedValue([]);
   });
 
   describe('recordStockReceipt (Nhập kho)', () => {
@@ -77,9 +78,16 @@ describe('InventoryService', () => {
         quantity: new Decimal(20),
       });
 
-      mockPrisma.stockDocument.create.mockResolvedValue({ id: 'doc-uuid-1', code: 'PNK-TEST' });
-      mockPrisma.stockDocumentItem.create.mockResolvedValue({ id: 'doc-item-uuid-1' });
-      mockPrisma.stockMovement.create.mockResolvedValue({ id: 'movement-uuid-1' });
+      mockPrisma.stockDocument.create.mockResolvedValue({
+        id: 'doc-uuid-1',
+        code: 'PNK-TEST',
+      });
+      mockPrisma.stockDocumentItem.create.mockResolvedValue({
+        id: 'doc-item-uuid-1',
+      });
+      mockPrisma.stockMovement.create.mockResolvedValue({
+        id: 'movement-uuid-1',
+      });
 
       const result = await service.recordStockReceipt({
         warehouseId,
@@ -154,9 +162,16 @@ describe('InventoryService', () => {
         quantity: new Decimal(7),
       });
 
-      mockPrisma.stockDocument.create.mockResolvedValue({ id: 'doc-uuid-2', code: 'PXK-TEST' });
-      mockPrisma.stockDocumentItem.create.mockResolvedValue({ id: 'doc-item-uuid-2' });
-      mockPrisma.stockMovement.create.mockResolvedValue({ id: 'movement-uuid-2' });
+      mockPrisma.stockDocument.create.mockResolvedValue({
+        id: 'doc-uuid-2',
+        code: 'PXK-TEST',
+      });
+      mockPrisma.stockDocumentItem.create.mockResolvedValue({
+        id: 'doc-item-uuid-2',
+      });
+      mockPrisma.stockMovement.create.mockResolvedValue({
+        id: 'movement-uuid-2',
+      });
 
       // Xuất 3 cái -> Tồn còn 7
       const result = await service.recordStockIssue({
@@ -187,14 +202,24 @@ describe('InventoryService', () => {
           warehouseId,
           productId: 'p1',
           quantity: new Decimal(3),
-          product: { id: 'p1', name: 'Mặt hàng sắp hết', sku: 'SKU-01', minStock: new Decimal(5) },
+          product: {
+            id: 'p1',
+            name: 'Mặt hàng sắp hết',
+            sku: 'SKU-01',
+            minStock: new Decimal(5),
+          },
           warehouse: { id: warehouseId, name: 'Kho Tổng' },
         },
         {
           warehouseId,
           productId: 'p2',
           quantity: new Decimal(20),
-          product: { id: 'p2', name: 'Mặt hàng đủ tồn', sku: 'SKU-02', minStock: new Decimal(5) },
+          product: {
+            id: 'p2',
+            name: 'Mặt hàng đủ tồn',
+            sku: 'SKU-02',
+            minStock: new Decimal(5),
+          },
           warehouse: { id: warehouseId, name: 'Kho Tổng' },
         },
       ]);
@@ -202,6 +227,67 @@ describe('InventoryService', () => {
       const balances = await service.getStockBalances({ warehouseId });
       expect(balances[0].isLowStock).toBe(true);
       expect(balances[1].isLowStock).toBe(false);
+    });
+
+    it('includes active products without a stock balance as not yet received', async () => {
+      mockPrisma.warehouse.findFirst.mockResolvedValue({ id: 'warehouse-1' });
+      mockPrisma.stockBalance.findMany.mockResolvedValue([]);
+      mockPrisma.product.findMany.mockResolvedValue([
+        {
+          id: 'new-1',
+          name: 'Hàng mới',
+          sku: 'NEW-1',
+          barcode: null,
+          imageUrl: null,
+          minStock: new Decimal(0),
+          baseUnit: { name: 'Cái' },
+          category: null,
+          createdAt: new Date(),
+        },
+      ]);
+
+      const balances = await service.getStockBalances({
+        warehouseId: 'warehouse-1',
+        lowStockOnly: true,
+      });
+
+      expect(balances).toEqual([
+        expect.objectContaining({
+          productId: 'new-1',
+          quantity: 0,
+          status: 'NOT_RECEIVED',
+          isLowStock: true,
+        }),
+      ]);
+    });
+
+    it('only marks zero stock as out of stock when a balance exists', async () => {
+      mockPrisma.warehouse.findFirst.mockResolvedValue({ id: 'warehouse-1' });
+      mockPrisma.stockBalance.findMany.mockResolvedValue([
+        {
+          id: 'balance-1',
+          warehouseId: 'warehouse-1',
+          productId: 'sold-1',
+          quantity: new Decimal(0),
+          averageUnitCost: new Decimal(0),
+          product: {
+            id: 'sold-1',
+            name: 'Đã xuất hết',
+            sku: 'SOLD-1',
+            minStock: new Decimal(5),
+            baseUnit: { name: 'Cái' },
+          },
+          warehouse: { name: 'Kho' },
+        },
+      ]);
+
+      const balances = await service.getStockBalances({
+        warehouseId: 'warehouse-1',
+      });
+
+      expect(balances[0]).toEqual(
+        expect.objectContaining({ status: 'OUT_OF_STOCK', quantity: 0 }),
+      );
     });
   });
 
@@ -227,7 +313,11 @@ describe('InventoryService', () => {
               quantity: new Decimal(10),
               unitCost: new Decimal(1000),
               lineTotal: new Decimal(10000),
-              product: { name: 'Sản phẩm 1', sku: 'SP01', baseUnit: { name: 'Cái' } },
+              product: {
+                name: 'Sản phẩm 1',
+                sku: 'SP01',
+                baseUnit: { name: 'Cái' },
+              },
             },
           ],
         },
@@ -269,7 +359,11 @@ describe('InventoryService', () => {
           movementType: 'IN',
           quantityDelta: new Decimal(5),
           createdAt: new Date(),
-          product: { name: 'Sản phẩm A', sku: 'SPA', baseUnit: { name: 'Hộp' } },
+          product: {
+            name: 'Sản phẩm A',
+            sku: 'SPA',
+            baseUnit: { name: 'Hộp' },
+          },
           stockDocumentItem: {
             stockDocument: {
               code: 'PNK-01',
@@ -283,7 +377,11 @@ describe('InventoryService', () => {
           movementType: 'OUT',
           quantityDelta: new Decimal(-2),
           createdAt: new Date(),
-          product: { name: 'Sản phẩm B', sku: 'SPB', baseUnit: { name: 'Cái' } },
+          product: {
+            name: 'Sản phẩm B',
+            sku: 'SPB',
+            baseUnit: { name: 'Cái' },
+          },
           stockDocumentItem: {
             stockDocument: {
               code: 'PXK-01',
@@ -300,6 +398,65 @@ describe('InventoryService', () => {
       const kpis = await service.getDashboardKpis(warehouseId);
       expect(kpis.recentMovements[0].performerName).toBe('Trần Thị B');
       expect(kpis.recentMovements[1].performerName).toBe('Không xác định');
+    });
+  });
+
+  describe('getDashboardKpis alerts', () => {
+    it('counts every new product and separates it from products issued down to zero', async () => {
+      mockPrisma.warehouse.findFirst.mockResolvedValue({ id: 'warehouse-1' });
+      mockPrisma.product.count.mockResolvedValue(4);
+      mockPrisma.product.findMany.mockResolvedValue([
+        {
+          id: 'new-1',
+          name: 'Hàng 1',
+          sku: 'NEW-1',
+          minStock: new Decimal(5),
+          baseUnit: { name: 'Cái' },
+        },
+        {
+          id: 'new-2',
+          name: 'Hàng 2',
+          sku: 'NEW-2',
+          minStock: new Decimal(5),
+          baseUnit: { name: 'Cái' },
+        },
+        {
+          id: 'new-3',
+          name: 'Hàng 3',
+          sku: 'NEW-3',
+          minStock: new Decimal(5),
+          baseUnit: { name: 'Cái' },
+        },
+      ]);
+      mockPrisma.stockBalance.findMany.mockResolvedValue([
+        {
+          id: 'balance-1',
+          warehouseId: 'warehouse-1',
+          productId: 'sold-1',
+          quantity: new Decimal(0),
+          averageUnitCost: new Decimal(0),
+          product: {
+            id: 'sold-1',
+            name: 'Hàng 4',
+            sku: 'SOLD-1',
+            minStock: new Decimal(5),
+          },
+        },
+      ]);
+      mockPrisma.stockMovement.findMany.mockResolvedValue([]);
+
+      const kpis = await service.getDashboardKpis('warehouse-1');
+
+      expect(kpis.lowStockCount).toBe(4);
+      expect(kpis.outOfStockCount).toBe(1);
+      expect(kpis.lowStockItems).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'new-1', status: 'NOT_RECEIVED' }),
+          expect.objectContaining({ id: 'new-2', status: 'NOT_RECEIVED' }),
+          expect.objectContaining({ id: 'new-3', status: 'NOT_RECEIVED' }),
+          expect.objectContaining({ id: 'sold-1', status: 'OUT_OF_STOCK' }),
+        ]),
+      );
     });
   });
 });
