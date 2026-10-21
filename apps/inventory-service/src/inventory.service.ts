@@ -4,8 +4,17 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
-import { StockReceiptDto, StockIssueDto, StockQueryDto } from './dto/stock-operation.dto';
-import { StockDocumentType, DocumentStatus, MovementType, Prisma } from '@prisma/client';
+import {
+  StockReceiptDto,
+  StockIssueDto,
+  StockQueryDto,
+} from './dto/stock-operation.dto';
+import {
+  StockDocumentType,
+  DocumentStatus,
+  MovementType,
+  Prisma,
+} from '@prisma/client';
 
 @Injectable()
 export class InventoryService {
@@ -33,7 +42,9 @@ export class InventoryService {
       where: { isActive: true },
     });
     if (!anyWarehouse) {
-      throw new NotFoundException('Không tìm thấy kho hàng hoạt động nào trong hệ thống!');
+      throw new NotFoundException(
+        'Không tìm thấy kho hàng hoạt động nào trong hệ thống!',
+      );
     }
     return anyWarehouse.id;
   }
@@ -51,32 +62,54 @@ export class InventoryService {
   async getStockBalances(query: StockQueryDto) {
     const warehouseId = await this.resolveWarehouseId(query.warehouseId);
 
-    const balances = await this.prisma.stockBalance.findMany({
-      where: {
-        warehouseId,
-        ...(query.search
-          ? {
-              product: {
+    const [balances, unreceivedProducts] = await Promise.all([
+      this.prisma.stockBalance.findMany({
+        where: {
+          warehouseId,
+          product: {
+            isActive: true,
+            ...(query.search
+              ? {
+                  OR: [
+                    { name: { contains: query.search, mode: 'insensitive' } },
+                    { sku: { contains: query.search, mode: 'insensitive' } },
+                    {
+                      barcode: { contains: query.search, mode: 'insensitive' },
+                    },
+                  ],
+                }
+              : {}),
+          },
+        },
+        include: {
+          warehouse: true,
+          product: {
+            include: {
+              category: true,
+              baseUnit: true,
+            },
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.product.findMany({
+        where: {
+          isActive: true,
+          stockBalances: { none: { warehouseId } },
+          ...(query.search
+            ? {
                 OR: [
                   { name: { contains: query.search, mode: 'insensitive' } },
                   { sku: { contains: query.search, mode: 'insensitive' } },
                   { barcode: { contains: query.search, mode: 'insensitive' } },
                 ],
-              },
-            }
-          : {}),
-      },
-      include: {
-        warehouse: true,
-        product: {
-          include: {
-            category: true,
-            baseUnit: true,
-          },
+              }
+            : {}),
         },
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
+        include: { category: true, baseUnit: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
 
     const mapped = balances.map((b) => {
       const quantity = Number(b.quantity);
@@ -111,11 +144,33 @@ export class InventoryService {
       };
     });
 
+    const allBalances = [
+      ...mapped,
+      ...unreceivedProducts.map((product) => ({
+        id: product.id,
+        warehouseId,
+        warehouseName: undefined,
+        productId: product.id,
+        productName: product.name,
+        productSku: product.sku,
+        productBarcode: product.barcode,
+        productImage: product.imageUrl,
+        categoryName: product.category?.name,
+        unitName: product.baseUnit?.name ?? 'Cái',
+        quantity: 0,
+        averageUnitCost: 0,
+        minStock: Number(product.minStock ?? 5),
+        status: 'NOT_RECEIVED' as const,
+        isLowStock: true,
+        updatedAt: product.createdAt,
+      })),
+    ];
+
     if (query.lowStockOnly === true || query.lowStockOnly === 'true') {
-      return mapped.filter((item) => item.isLowStock);
+      return allBalances.filter((item) => item.isLowStock);
     }
 
-    return mapped;
+    return allBalances;
   }
 
   // 3. Nhập kho (Stock Receipt)
@@ -127,7 +182,9 @@ export class InventoryService {
       include: { baseUnit: true },
     });
     if (!product) {
-      throw new NotFoundException(`Không tìm thấy hàng hóa với ID ${dto.productId}`);
+      throw new NotFoundException(
+        `Không tìm thấy hàng hóa với ID ${dto.productId}`,
+      );
     }
 
     const qty = Number(dto.quantity);
@@ -160,7 +217,8 @@ export class InventoryService {
         },
         update: {
           quantity: new Prisma.Decimal(newQty),
-          averageUnitCost: unitCost > 0 ? new Prisma.Decimal(unitCost) : undefined,
+          averageUnitCost:
+            unitCost > 0 ? new Prisma.Decimal(unitCost) : undefined,
         },
         create: {
           warehouseId,
@@ -229,7 +287,9 @@ export class InventoryService {
       include: { baseUnit: true },
     });
     if (!product) {
-      throw new NotFoundException(`Không tìm thấy hàng hóa với ID ${dto.productId}`);
+      throw new NotFoundException(
+        `Không tìm thấy hàng hóa với ID ${dto.productId}`,
+      );
     }
 
     const qty = Number(dto.quantity);
@@ -258,7 +318,9 @@ export class InventoryService {
       }
 
       const newQty = currentQty - qty;
-      const unitCost = Number(existingBalance?.averageUnitCost ?? product.costPrice ?? 0);
+      const unitCost = Number(
+        existingBalance?.averageUnitCost ?? product.costPrice ?? 0,
+      );
 
       // 2. Cập nhật giảm số dư
       const updatedBalance = await tx.stockBalance.upsert({
@@ -341,10 +403,7 @@ export class InventoryService {
 
     const [totalProducts, balances, recentMovements] = await Promise.all([
       this.prisma.product.count({ where: { isActive: true } }),
-      this.prisma.stockBalance.findMany({
-        where: { warehouseId: resolvedWarehouseId },
-        include: { product: true },
-      }),
+      this.getStockBalances({ warehouseId: resolvedWarehouseId }),
       this.prisma.stockMovement.findMany({
         where: { warehouseId: resolvedWarehouseId },
         include: {
@@ -365,20 +424,30 @@ export class InventoryService {
       sku: string;
       quantity: number;
       minStock: number;
-      status: 'OUT_OF_STOCK' | 'LOW_STOCK';
+      status: 'NOT_RECEIVED' | 'OUT_OF_STOCK' | 'LOW_STOCK';
     }> = [];
 
     for (const b of balances) {
-      const qty = Number(b.quantity);
-      const minStock = Number(b.product?.minStock ?? 5);
+      const qty = b.quantity;
+      const minStock = b.minStock;
       totalStockUnits += qty;
 
-      if (qty <= 0) {
+      if (b.status === 'NOT_RECEIVED') {
+        lowStockCount++;
+        lowStockItems.push({
+          id: b.productId,
+          name: b.productName,
+          sku: b.productSku,
+          quantity: qty,
+          minStock,
+          status: 'NOT_RECEIVED',
+        });
+      } else if (qty <= 0) {
         outOfStockCount++;
         lowStockItems.push({
           id: b.productId,
-          name: b.product.name,
-          sku: b.product.sku,
+          name: b.productName,
+          sku: b.productSku,
           quantity: qty,
           minStock,
           status: 'OUT_OF_STOCK',
@@ -387,8 +456,8 @@ export class InventoryService {
         lowStockCount++;
         lowStockItems.push({
           id: b.productId,
-          name: b.product.name,
-          sku: b.product.sku,
+          name: b.productName,
+          sku: b.productSku,
           quantity: qty,
           minStock,
           status: 'LOW_STOCK',
@@ -483,7 +552,8 @@ export class InventoryService {
 
     return documents.map((doc) => {
       const creatorName = doc.createdBy
-        ? userMap.get(doc.createdBy) || `Người dùng #${doc.createdBy.slice(0, 8)}`
+        ? userMap.get(doc.createdBy) ||
+          `Người dùng #${doc.createdBy.slice(0, 8)}`
         : 'Không xác định';
 
       const posterName = doc.postedBy
