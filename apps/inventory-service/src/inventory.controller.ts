@@ -1,13 +1,10 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Query,
-  Headers,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Headers } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
-import { StockReceiptDto, StockIssueDto, StockQueryDto } from './dto/stock-operation.dto';
+import {
+  StockReceiptDto,
+  StockIssueDto,
+  StockQueryDto,
+} from './dto/stock-operation.dto';
 
 @Controller('inventory')
 export class InventoryController {

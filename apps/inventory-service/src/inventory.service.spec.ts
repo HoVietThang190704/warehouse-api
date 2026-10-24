@@ -1,14 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { InventoryService } from './inventory.service';
 import { PrismaService } from './prisma.service';
+import { InventoryEventEmitterService } from './events/inventory-event-emitter.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 
 describe('InventoryService', () => {
   let service: InventoryService;
   let prisma: PrismaService;
+  let mockEventEmitter: { emitInventoryChanged: jest.Mock };
 
-  const mockPrisma = {
+  const mockPrisma: any = {
     warehouse: {
       findFirst: jest.fn(),
       findMany: jest.fn(),
@@ -37,14 +39,19 @@ describe('InventoryService', () => {
     user: {
       findMany: jest.fn(),
     },
-    $transaction: jest.fn((callback) => callback(mockPrisma)),
+    $transaction: jest.fn((callback: (tx: any) => any) => callback(mockPrisma)),
   };
 
   beforeEach(async () => {
+    mockEventEmitter = {
+      emitInventoryChanged: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InventoryService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: InventoryEventEmitterService, useValue: mockEventEmitter },
       ],
     }).compile();
 
