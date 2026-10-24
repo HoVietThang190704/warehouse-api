@@ -15,10 +15,14 @@ import {
   MovementType,
   Prisma,
 } from '@prisma/client';
+import { InventoryEventEmitterService } from './events/inventory-event-emitter.service';
 
 @Injectable()
 export class InventoryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter?: InventoryEventEmitterService,
+  ) {}
 
   private generateCode(type: 'IN' | 'OUT'): string {
     const prefix = type === 'IN' ? 'PNK' : 'PXK';
@@ -193,7 +197,7 @@ export class InventoryService {
     }
     const unitCost = Number(dto.unitCost ?? product.costPrice ?? 0);
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // 1. Find existing balance
       const existingBalance = await tx.stockBalance.findUnique({
         where: {
@@ -269,6 +273,7 @@ export class InventoryService {
 
       return {
         success: true,
+        warehouseId,
         documentCode: doc.code,
         productId: dto.productId,
         productName: product.name,
@@ -276,6 +281,19 @@ export class InventoryService {
         newBalance: Number(updatedBalance.quantity),
       };
     });
+
+    // Phát sự kiện realtime CHỈ SAU KHI Transaction đã commit thành công
+    if (this.eventEmitter) {
+      void this.eventEmitter.emitInventoryChanged({
+        warehouseId: result.warehouseId,
+        productId: result.productId,
+        documentCode: result.documentCode,
+        type: 'IN',
+        performerId: userId,
+      });
+    }
+
+    return result;
   }
 
   // 4. Xuất kho (Stock Issue - chặn xuất âm tuyệt đối)
@@ -297,7 +315,7 @@ export class InventoryService {
       throw new BadRequestException('Số lượng xuất phải lớn hơn 0');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // 1. Kiểm tra tồn hiện có
       const existingBalance = await tx.stockBalance.findUnique({
         where: {
@@ -384,6 +402,7 @@ export class InventoryService {
 
       return {
         success: true,
+        warehouseId,
         documentCode: doc.code,
         productId: dto.productId,
         productName: product.name,
@@ -395,6 +414,19 @@ export class InventoryService {
           : null,
       };
     });
+
+    // Phát sự kiện realtime CHỈ SAU KHI Transaction đã commit thành công
+    if (this.eventEmitter) {
+      void this.eventEmitter.emitInventoryChanged({
+        warehouseId: result.warehouseId,
+        productId: result.productId,
+        documentCode: result.documentCode,
+        type: 'OUT',
+        performerId: userId,
+      });
+    }
+
+    return result;
   }
 
   // 5. KPIs Dashboard
