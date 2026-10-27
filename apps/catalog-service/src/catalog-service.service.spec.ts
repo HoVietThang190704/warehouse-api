@@ -3,11 +3,31 @@ import { CatalogServiceService } from './catalog-service.service';
 import { PrismaService } from './prisma.service';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
+import { InventoryEventEmitterService } from '@common';
 
 describe('CatalogServiceService - Edit & Detail & Delete', () => {
   let service: CatalogServiceService;
 
-  const mockPrisma = {
+  const mockInventoryEventEmitter = {
+    emitInventoryChanged: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockPrisma: any = {
+    $transaction: jest.fn((callback: (tx: any) => any) => callback(mockPrisma)),
+    warehouse: {
+      findFirst: jest.fn(),
+      findUnique: jest.fn(),
+    },
+    stockBalance: {
+      create: jest.fn(),
+      upsert: jest.fn(),
+    },
+    stockDocument: {
+      create: jest.fn(),
+    },
+    stockDocumentItem: {
+      create: jest.fn(),
+    },
     productCategory: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
@@ -30,6 +50,7 @@ describe('CatalogServiceService - Edit & Detail & Delete', () => {
     },
     stockMovement: {
       count: jest.fn(),
+      create: jest.fn(),
     },
   };
 
@@ -38,6 +59,7 @@ describe('CatalogServiceService - Edit & Detail & Delete', () => {
       providers: [
         CatalogServiceService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: InventoryEventEmitterService, useValue: mockInventoryEventEmitter },
       ],
     }).compile();
 
@@ -105,6 +127,135 @@ describe('CatalogServiceService - Edit & Detail & Delete', () => {
       expect(mockPrisma.productCategory.delete).toHaveBeenCalledWith({
         where: { id: 'cat-empty' },
       });
+    });
+  });
+
+  describe('Product Creation with Initial Quantity', () => {
+    it('should create product without opening balance when initialQuantity is 0 or undefined', async () => {
+      mockPrisma.product.findUnique.mockResolvedValue(null);
+      mockPrisma.unit.findFirst.mockResolvedValue({ id: 'u-1', name: 'Cái' });
+      mockPrisma.product.create.mockResolvedValue({
+        id: 'prod-new-1',
+        sku: 'SP-01',
+        name: 'Sản phẩm mới',
+        baseUnitId: 'u-1',
+      });
+
+      const result = await service.createProduct({
+        sku: 'SP-01',
+        name: 'Sản phẩm mới',
+        initialQuantity: 0,
+      });
+
+      expect(result.id).toBe('prod-new-1');
+      expect(mockPrisma.stockBalance.create).not.toHaveBeenCalled();
+      expect(mockPrisma.stockDocument.create).not.toHaveBeenCalled();
+      expect(mockPrisma.stockMovement.create).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException if initialQuantity is negative', async () => {
+      await expect(
+        service.createProduct({
+          sku: 'SP-NEG',
+          name: 'Hàng lỗi',
+          initialQuantity: -5,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should create product and record opening balance in transaction when initialQuantity > 0', async () => {
+      mockPrisma.product.findUnique.mockResolvedValue(null);
+      mockPrisma.unit.findFirst.mockResolvedValue({ id: 'u-1', name: 'Cái' });
+      mockPrisma.warehouse.findFirst.mockResolvedValue({ id: 'wh-default', name: 'Kho Tổng', isDefault: true });
+
+      const createdProduct = {
+        id: 'prod-with-stock',
+        sku: 'SP-STOCK',
+        name: 'Sản phẩm có tồn',
+        costPrice: new Decimal(20000),
+        baseUnitId: 'u-1',
+      };
+      mockPrisma.product.create.mockResolvedValue(createdProduct);
+      mockPrisma.stockBalance.create.mockResolvedValue({
+        id: 'sb-1',
+        warehouseId: 'wh-default',
+        productId: 'prod-with-stock',
+        quantity: new Decimal(50),
+        averageUnitCost: new Decimal(20000),
+      });
+      mockPrisma.stockDocument.create.mockResolvedValue({
+        id: 'doc-1',
+        code: 'OPEN-20261027-1234',
+        warehouseId: 'wh-default',
+      });
+      mockPrisma.stockDocumentItem.create.mockResolvedValue({
+        id: 'item-1',
+        stockDocumentId: 'doc-1',
+        productId: 'prod-with-stock',
+        quantity: new Decimal(50),
+      });
+      mockPrisma.stockMovement.create.mockResolvedValue({
+        id: 'mov-1',
+        movementType: 'IN',
+        quantityDelta: new Decimal(50),
+      });
+
+      const result = await service.createProduct(
+        {
+          sku: 'SP-STOCK',
+          name: 'Sản phẩm có tồn',
+          costPrice: 20000,
+          initialQuantity: 50,
+        },
+        'user-1',
+      );
+
+      expect(result.id).toBe('prod-with-stock');
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+      expect(mockPrisma.stockBalance.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            warehouseId: 'wh-default',
+            productId: 'prod-with-stock',
+            quantity: new Decimal(50),
+            averageUnitCost: new Decimal(20000),
+          }),
+        }),
+      );
+      expect(mockPrisma.stockDocument.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            warehouseId: 'wh-default',
+            type: 'OPENING_BALANCE',
+            status: 'POSTED',
+            createdBy: 'user-1',
+          }),
+        }),
+      );
+      expect(mockPrisma.stockMovement.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            warehouseId: 'wh-default',
+            productId: 'prod-with-stock',
+            movementType: 'IN',
+            quantityDelta: new Decimal(50),
+          }),
+        }),
+      );
+    });
+
+    it('should throw NotFoundException if no active warehouse found when initialQuantity > 0', async () => {
+      mockPrisma.product.findUnique.mockResolvedValue(null);
+      mockPrisma.unit.findFirst.mockResolvedValue({ id: 'u-1', name: 'Cái' });
+      mockPrisma.warehouse.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.createProduct({
+          sku: 'SP-NOWH',
+          name: 'Không có kho',
+          initialQuantity: 10,
+        }),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

@@ -5,7 +5,7 @@ import { CatalogServiceController } from './catalog-service.controller';
 import { CatalogServiceService } from './catalog-service.service';
 import { PrismaService } from './prisma.service';
 import { RolesGuard } from './guards/roles.guard';
-import { CloudinaryService } from '@common';
+import { CloudinaryService, InventoryEventEmitterService } from '@common';
 
 @Module({
   imports: [
@@ -16,7 +16,19 @@ import { CloudinaryService } from '@common';
     JwtModule.register({}),
   ],
   controllers: [CatalogServiceController],
-  providers: [CatalogServiceService, PrismaService, RolesGuard, CloudinaryService],
-  exports: [CatalogServiceService, PrismaService, RolesGuard, CloudinaryService],
+  providers: [
+    CatalogServiceService,
+    PrismaService,
+    RolesGuard,
+    CloudinaryService,
+    InventoryEventEmitterService,
+  ],
+  exports: [
+    CatalogServiceService,
+    PrismaService,
+    RolesGuard,
+    CloudinaryService,
+    InventoryEventEmitterService,
+  ],
 })
 export class CatalogServiceModule {}
