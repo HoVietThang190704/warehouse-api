@@ -465,5 +465,59 @@ describe('InventoryService', () => {
         ]),
       );
     });
+
+    it('should prioritize red (quantity <= 0) items on top before yellow (quantity > 0) items', async () => {
+      mockPrisma.warehouse.findFirst.mockResolvedValue({ id: 'warehouse-1' });
+      mockPrisma.product.count.mockResolvedValue(3);
+      // Existing stock balances: 1 item is low stock (qty: 3, min: 5 - yellow) and 1 item is out of stock (qty: 0, min: 5 - red)
+      mockPrisma.stockBalance.findMany.mockResolvedValue([
+        {
+          id: 'b-yellow',
+          warehouseId: 'warehouse-1',
+          productId: 'prod-yellow',
+          quantity: new Decimal(3),
+          averageUnitCost: new Decimal(10000),
+          product: {
+            id: 'prod-yellow',
+            name: 'Hàng sắp hết (vàng)',
+            sku: 'SKU-YELLOW',
+            minStock: new Decimal(5),
+          },
+        },
+        {
+          id: 'b-red',
+          warehouseId: 'warehouse-1',
+          productId: 'prod-red-zero',
+          quantity: new Decimal(0),
+          averageUnitCost: new Decimal(10000),
+          product: {
+            id: 'prod-red-zero',
+            name: 'Hàng hết sạch (đỏ)',
+            sku: 'SKU-RED',
+            minStock: new Decimal(5),
+          },
+        },
+      ]);
+      // 1 item unreceived (qty: 0 - red)
+      mockPrisma.product.findMany.mockResolvedValue([
+        {
+          id: 'prod-unreceived',
+          name: 'Hàng chưa nhập kho (đỏ)',
+          sku: 'SKU-UNREC',
+          minStock: new Decimal(5),
+          baseUnit: { name: 'Cái' },
+        },
+      ]);
+      mockPrisma.stockMovement.findMany.mockResolvedValue([]);
+
+      const kpis = await service.getDashboardKpis('warehouse-1');
+
+      // First items in lowStockItems must have quantity <= 0 (red)
+      expect(kpis.lowStockItems[0].quantity).toBe(0);
+      expect(kpis.lowStockItems[1].quantity).toBe(0);
+      // Yellow items (quantity > 0) must appear after all red items
+      expect(kpis.lowStockItems[2].quantity).toBe(3);
+      expect(kpis.lowStockItems[2].id).toBe('prod-yellow');
+    });
   });
 });

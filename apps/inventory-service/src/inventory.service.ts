@@ -450,7 +450,15 @@ export class InventoryService {
     let totalStockUnits = 0;
     let lowStockCount = 0;
     let outOfStockCount = 0;
-    const lowStockItems: Array<{
+    const outOfStockItems: Array<{
+      id: string;
+      name: string;
+      sku: string;
+      quantity: number;
+      minStock: number;
+      status: 'NOT_RECEIVED' | 'OUT_OF_STOCK' | 'LOW_STOCK';
+    }> = [];
+    const lowStockOnlyItems: Array<{
       id: string;
       name: string;
       sku: string;
@@ -466,7 +474,7 @@ export class InventoryService {
 
       if (b.status === 'NOT_RECEIVED') {
         lowStockCount++;
-        lowStockItems.push({
+        outOfStockItems.push({
           id: b.productId,
           name: b.productName,
           sku: b.productSku,
@@ -476,7 +484,7 @@ export class InventoryService {
         });
       } else if (qty <= 0) {
         outOfStockCount++;
-        lowStockItems.push({
+        outOfStockItems.push({
           id: b.productId,
           name: b.productName,
           sku: b.productSku,
@@ -486,7 +494,7 @@ export class InventoryService {
         });
       } else if (qty <= minStock) {
         lowStockCount++;
-        lowStockItems.push({
+        lowStockOnlyItems.push({
           id: b.productId,
           name: b.productName,
           sku: b.productSku,
@@ -496,6 +504,9 @@ export class InventoryService {
         });
       }
     }
+
+    // Ưu tiên hàng hết kho/chưa nhập (màu đỏ, quantity <= 0) lên trên, sau đó mới tới hàng sắp hết (màu vàng)
+    const lowStockItems = [...outOfStockItems, ...lowStockOnlyItems];
 
     const movementUserIds = Array.from(
       new Set(
