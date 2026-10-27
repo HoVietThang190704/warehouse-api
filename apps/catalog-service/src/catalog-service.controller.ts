@@ -7,6 +7,7 @@ import {
   Body,
   Param,
   Query,
+  Headers,
   UseGuards,
   UseInterceptors,
   UploadedFile,
@@ -88,8 +89,11 @@ export class CatalogServiceController {
   @Post('products')
   @Roles('SUPER_ADMIN', 'WAREHOUSE_MANAGER')
   @UseGuards(RolesGuard)
-  async createProduct(@Body() dto: CreateProductDto) {
-    return this.catalogService.createProduct(dto);
+  async createProduct(
+    @Body() dto: CreateProductDto,
+    @Headers('x-user-id') userId?: string,
+  ) {
+    return this.catalogService.createProduct(dto, userId);
   }
 
   @Get('products')

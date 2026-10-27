@@ -9,11 +9,61 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { Prisma } from '@prisma/client';
+import {
+  Prisma,
+  StockDocumentType,
+  DocumentStatus,
+  MovementType,
+} from '@prisma/client';
+import { InventoryEventEmitterService } from '@common';
 
 @Injectable()
 export class CatalogServiceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter?: InventoryEventEmitterService,
+  ) {}
+
+  private generateOpeningDocCode(): string {
+    const prefix = 'OPEN';
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    return `${prefix}-${dateStr}-${rand}`;
+  }
+
+  private async resolveWarehouseId(
+    providedId?: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<string> {
+    const client = tx || this.prisma;
+    if (providedId) {
+      const found = await client.warehouse.findUnique({
+        where: { id: providedId },
+      });
+      if (!found) {
+        throw new NotFoundException(
+          `Kho hàng với ID ${providedId} không tồn tại`,
+        );
+      }
+      return found.id;
+    }
+    const defaultWarehouse = await client.warehouse.findFirst({
+      where: { isDefault: true, isActive: true },
+    });
+    if (defaultWarehouse) {
+      return defaultWarehouse.id;
+    }
+    const anyWarehouse = await client.warehouse.findFirst({
+      where: { isActive: true },
+    });
+    if (!anyWarehouse) {
+      throw new NotFoundException(
+        'Không tìm thấy kho hàng hoạt động nào trong hệ thống!',
+      );
+    }
+    return anyWarehouse.id;
+  }
 
   // 1. Quản lý Danh mục (Categories)
   async createCategory(dto: CreateCategoryDto) {
@@ -106,7 +156,11 @@ export class CatalogServiceService {
   }
 
   // 3. Quản lý Sản phẩm (Products)
-  async createProduct(dto: CreateProductDto) {
+  async createProduct(dto: CreateProductDto, userId?: string) {
+    if (dto.initialQuantity !== undefined && Number(dto.initialQuantity) < 0) {
+      throw new BadRequestException('Số lượng ban đầu không được âm');
+    }
+
     const existingProduct = await this.prisma.product.findUnique({
       where: { sku: dto.sku.toUpperCase() },
     });
@@ -142,6 +196,100 @@ export class CatalogServiceService {
       }
     }
 
+    const initialQty = Number(dto.initialQuantity ?? 0);
+    const costPrice = Number(dto.costPrice ?? 0);
+    const validUserId = userId && userId.trim() ? userId.trim() : null;
+
+    if (initialQty > 0) {
+      const warehouseId = await this.resolveWarehouseId(dto.warehouseId);
+
+      const result = await this.prisma.$transaction(async (tx) => {
+        const product = await tx.product.create({
+          data: {
+            sku: dto.sku.toUpperCase(),
+            barcode: dto.barcode,
+            name: dto.name,
+            categoryId: dto.categoryId,
+            baseUnitId,
+            minStock: new Prisma.Decimal(dto.minStock ?? 5),
+            costPrice: new Prisma.Decimal(costPrice),
+            sellingPrice: new Prisma.Decimal(dto.sellingPrice ?? 0),
+            imageUrl: dto.imageUrl,
+          },
+          include: {
+            category: true,
+            baseUnit: true,
+          },
+        });
+
+        // 1. Create StockBalance
+        await tx.stockBalance.create({
+          data: {
+            warehouseId,
+            productId: product.id,
+            quantity: new Prisma.Decimal(initialQty),
+            averageUnitCost: new Prisma.Decimal(costPrice),
+          },
+        });
+
+        // 2. Create StockDocument
+        const docCode = this.generateOpeningDocCode();
+        const doc = await tx.stockDocument.create({
+          data: {
+            code: docCode,
+            warehouseId,
+            type: StockDocumentType.OPENING_BALANCE,
+            status: DocumentStatus.POSTED,
+            note: 'Khởi tạo số dư tồn kho ban đầu khi tạo hàng hóa',
+            createdBy: validUserId,
+            postedBy: validUserId,
+            postedAt: new Date(),
+          },
+        });
+
+        // 3. Create StockDocumentItem
+        const docItem = await tx.stockDocumentItem.create({
+          data: {
+            stockDocumentId: doc.id,
+            productId: product.id,
+            quantity: new Prisma.Decimal(initialQty),
+            unitCost: new Prisma.Decimal(costPrice),
+            lineTotal: new Prisma.Decimal(initialQty * costPrice),
+          },
+        });
+
+        // 4. Create StockMovement
+        await tx.stockMovement.create({
+          data: {
+            warehouseId,
+            productId: product.id,
+            stockDocumentItemId: docItem.id,
+            movementType: MovementType.IN,
+            quantityDelta: new Prisma.Decimal(initialQty),
+            unitCost: new Prisma.Decimal(costPrice),
+          },
+        });
+
+        return {
+          product,
+          warehouseId,
+          docCode,
+        };
+      });
+
+      if (this.eventEmitter) {
+        void this.eventEmitter.emitInventoryChanged({
+          warehouseId: result.warehouseId,
+          productId: result.product.id,
+          documentCode: result.docCode,
+          type: 'IN',
+          performerId: validUserId || undefined,
+        });
+      }
+
+      return result.product;
+    }
+
     return this.prisma.product.create({
       data: {
         sku: dto.sku.toUpperCase(),
@@ -150,7 +298,7 @@ export class CatalogServiceService {
         categoryId: dto.categoryId,
         baseUnitId,
         minStock: new Prisma.Decimal(dto.minStock ?? 5),
-        costPrice: new Prisma.Decimal(dto.costPrice ?? 0),
+        costPrice: new Prisma.Decimal(costPrice),
         sellingPrice: new Prisma.Decimal(dto.sellingPrice ?? 0),
         imageUrl: dto.imageUrl,
       },

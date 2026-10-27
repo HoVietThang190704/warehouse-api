@@ -8,6 +8,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateProductDto {
   @IsString({ message: 'SKU must be a string' })
@@ -36,17 +37,30 @@ export class CreateProductDto {
   @IsOptional()
   @IsNumber({}, { message: 'Min stock must be a valid number' })
   @Min(0, { message: 'Min stock cannot be negative' })
+  @Type(() => Number)
   minStock?: number;
 
   @IsOptional()
   @IsNumber({}, { message: 'Cost price must be a valid number' })
   @Min(0, { message: 'Cost price cannot be negative' })
+  @Type(() => Number)
   costPrice?: number;
 
   @IsOptional()
   @IsNumber({}, { message: 'Selling price must be a valid number' })
   @Min(0, { message: 'Selling price cannot be negative' })
+  @Type(() => Number)
   sellingPrice?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'Initial quantity must be a valid number' })
+  @Min(0, { message: 'Initial quantity cannot be negative' })
+  @Type(() => Number)
+  initialQuantity?: number;
+
+  @IsOptional()
+  @IsUUID('4', { message: 'Warehouse ID must be a valid UUID' })
+  warehouseId?: string;
 
   @IsOptional()
   @IsString()
