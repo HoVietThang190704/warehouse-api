@@ -62,6 +62,14 @@ export class InventoryService {
     });
   }
 
+  // 1.1 Lấy kho giới hạn cho nhân viên được gán
+  async getWarehousesForStaff(warehouseId: string) {
+    return this.prisma.warehouse.findMany({
+      where: { id: warehouseId, isActive: true },
+      include: { branch: true },
+    });
+  }
+
   // 2. Lấy sổ số dư tồn kho (Stock Balances)
   async getStockBalances(query: StockQueryDto) {
     const warehouseId = await this.resolveWarehouseId(query.warehouseId);

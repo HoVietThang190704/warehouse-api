@@ -29,7 +29,8 @@ async function bootstrap() {
         !origin ||
         origin.includes('localhost') ||
         origin.includes('127.0.0.1') ||
-        (frontendUrl && (origin === frontendUrl || origin.startsWith(frontendUrl))) ||
+        (frontendUrl &&
+          (origin === frontendUrl || origin.startsWith(frontendUrl))) ||
         (process.env.VERCEL_URL && origin.includes(process.env.VERCEL_URL)) ||
         /^http:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(
           origin,
@@ -55,6 +56,39 @@ async function bootstrap() {
   const inventoryServiceUrl =
     process.env.INVENTORY_SERVICE_URL || 'http://localhost:3003';
 
+  const attachAuthHeaders = (proxyReq: any, req: any) => {
+    const customReq = req as AuthenticatedRequest;
+    fixRequestBody(proxyReq, req);
+
+    // Chống giả mạo header từ phía client: xóa trắng trước khi gắn thông tin tin cậy từ JWT
+    proxyReq.removeHeader('x-user-id');
+    proxyReq.removeHeader('x-user-role');
+    proxyReq.removeHeader('x-user-branch-id');
+    proxyReq.removeHeader('x-user-warehouse-id');
+
+    let token = customReq.headers.authorization?.replace('Bearer ', '');
+    if (!token && customReq.cookies) {
+      token = customReq.cookies['access_token'];
+    }
+
+    if (token) {
+      if (!customReq.headers.authorization) {
+        proxyReq.setHeader('authorization', `Bearer ${token}`);
+      }
+      try {
+        const payload = jwtService.verify(token, {
+          secret: process.env.JWT_SECRET,
+        });
+        if (payload?.sub) proxyReq.setHeader('x-user-id', payload.sub);
+        if (payload?.role) proxyReq.setHeader('x-user-role', payload.role);
+        if (payload?.branchId)
+          proxyReq.setHeader('x-user-branch-id', payload.branchId);
+        if (payload?.warehouseId)
+          proxyReq.setHeader('x-user-warehouse-id', payload.warehouseId);
+      } catch {}
+    }
+  };
+
   // 3. Reverse Proxy: /api/auth/* -> http://localhost:3001/auth/*
   app.use(
     '/api/auth',
@@ -63,33 +97,25 @@ async function bootstrap() {
       changeOrigin: true,
       pathRewrite: (path) => `/auth${path}`,
       on: {
-        proxyReq: (proxyReq, req) => {
-          const customReq = req as AuthenticatedRequest;
-          // Re-stream body nếu đã bị Express/NestJS body-parser đọc
-          fixRequestBody(proxyReq, req);
-
-          let token = customReq.headers.authorization?.replace('Bearer ', '');
-          if (!token && customReq.cookies) {
-            token = customReq.cookies['access_token'];
-          }
-
-          if (token) {
-            try {
-              const payload = jwtService.verify(token, {
-                secret: process.env.JWT_SECRET,
-              });
-              if (payload?.sub) proxyReq.setHeader('x-user-id', payload.sub);
-              if (payload?.role) proxyReq.setHeader('x-user-role', payload.role);
-              if (payload?.branchId)
-                proxyReq.setHeader('x-user-branch-id', payload.branchId);
-            } catch {}
-          }
-        },
+        proxyReq: attachAuthHeaders,
       },
     }),
   );
 
-  // 4. Reverse Proxy: /api/catalog/* -> http://localhost:3002/catalog/*
+  // 4. Reverse Proxy: /api/users/* -> http://localhost:3001/users/* (Quản lý nhân sự)
+  app.use(
+    '/api/users',
+    createProxyMiddleware({
+      target: identityServiceUrl,
+      changeOrigin: true,
+      pathRewrite: (path) => `/users${path}`,
+      on: {
+        proxyReq: attachAuthHeaders,
+      },
+    }),
+  );
+
+  // 5. Reverse Proxy: /api/catalog/* -> http://localhost:3002/catalog/*
   app.use(
     '/api/catalog',
     createProxyMiddleware({
@@ -97,32 +123,12 @@ async function bootstrap() {
       changeOrigin: true,
       pathRewrite: (path) => `/catalog${path}`,
       on: {
-        proxyReq: (proxyReq, req) => {
-          const customReq = req as AuthenticatedRequest;
-          fixRequestBody(proxyReq, req);
-
-          let token = customReq.headers.authorization?.replace('Bearer ', '');
-          if (!token && customReq.cookies) {
-            token = customReq.cookies['access_token'];
-          }
-
-          if (token) {
-            try {
-              const payload = jwtService.verify(token, {
-                secret: process.env.JWT_SECRET,
-              });
-              if (payload?.sub) proxyReq.setHeader('x-user-id', payload.sub);
-              if (payload?.role) proxyReq.setHeader('x-user-role', payload.role);
-              if (payload?.branchId)
-                proxyReq.setHeader('x-user-branch-id', payload.branchId);
-            } catch {}
-          }
-        },
+        proxyReq: attachAuthHeaders,
       },
     }),
   );
 
-  // 5. Reverse Proxy: /api/inventory/* -> http://localhost:3003/inventory/*
+  // 6. Reverse Proxy: /api/inventory/* -> http://localhost:3003/inventory/*
   app.use(
     '/api/inventory',
     createProxyMiddleware({
@@ -130,27 +136,7 @@ async function bootstrap() {
       changeOrigin: true,
       pathRewrite: (path) => `/inventory${path}`,
       on: {
-        proxyReq: (proxyReq, req) => {
-          const customReq = req as AuthenticatedRequest;
-          fixRequestBody(proxyReq, req);
-
-          let token = customReq.headers.authorization?.replace('Bearer ', '');
-          if (!token && customReq.cookies) {
-            token = customReq.cookies['access_token'];
-          }
-
-          if (token) {
-            try {
-              const payload = jwtService.verify(token, {
-                secret: process.env.JWT_SECRET,
-              });
-              if (payload?.sub) proxyReq.setHeader('x-user-id', payload.sub);
-              if (payload?.role) proxyReq.setHeader('x-user-role', payload.role);
-              if (payload?.branchId)
-                proxyReq.setHeader('x-user-branch-id', payload.branchId);
-            } catch {}
-          }
-        },
+        proxyReq: attachAuthHeaders,
       },
     }),
   );

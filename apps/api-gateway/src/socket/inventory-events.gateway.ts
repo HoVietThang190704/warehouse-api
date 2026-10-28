@@ -65,6 +65,16 @@ export class InventoryEventsGateway
 
     // Tự động gia nhập room cá nhân của user
     client.join(`user:${user.userId}`);
+
+    // Gia nhập room theo vai trò (để phân luồng nhận thông báo)
+    if (user.role) {
+      client.join(`role:${user.role}`);
+    }
+
+    // Nếu là nhân viên, tự động gia nhập room của kho được gán
+    if (user.role === 'WAREHOUSE_STAFF' && user.warehouseId) {
+      client.join(`warehouse:${user.warehouseId}`);
+    }
   }
 
   handleDisconnect(client: Socket) {
@@ -79,6 +89,20 @@ export class InventoryEventsGateway
     if (!data?.warehouseId) {
       return { success: false, message: 'warehouseId is required' };
     }
+
+    const user = client.data?.user as SocketUserPayload | undefined;
+    // Chặn nhân viên theo dõi kho khác với kho được gán
+    if (
+      user?.role === 'WAREHOUSE_STAFF' &&
+      user.warehouseId &&
+      user.warehouseId !== data.warehouseId
+    ) {
+      return {
+        success: false,
+        message: 'Bạn không có quyền theo dõi dữ liệu kho này',
+      };
+    }
+
     client.join(`warehouse:${data.warehouseId}`);
     return { success: true, room: `warehouse:${data.warehouseId}` };
   }
@@ -99,7 +123,11 @@ export class InventoryEventsGateway
     if (!this.server) {
       return;
     }
-    // Phát cho tất cả client đang theo dõi kho này và toàn bộ client đang mở ứng dụng
-    this.server.emit('inventory:changed', payload);
+    // Chỉ gửi đến client đang ở trong room của kho đó hoặc tài khoản quản lý / admin toàn hệ thống
+    this.server
+      .to(`warehouse:${payload.warehouseId}`)
+      .to('role:SUPER_ADMIN')
+      .to('role:WAREHOUSE_MANAGER')
+      .emit('inventory:changed', payload);
   }
 }

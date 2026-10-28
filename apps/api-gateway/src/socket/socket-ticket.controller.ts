@@ -1,9 +1,4 @@
-import {
-  Controller,
-  Get,
-  Req,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Controller, Get, Req, UnauthorizedException } from '@nestjs/common';
 import type { Request } from 'express';
 import { JwtService } from '@nestjs/jwt';
 import { SocketTicketService } from './socket-ticket.service';
@@ -38,6 +33,7 @@ export class SocketTicketController {
         userId: payload.sub,
         role: payload.role,
         branchId: payload.branchId,
+        warehouseId: payload.warehouseId || null,
       });
 
       return {

@@ -34,6 +34,8 @@ export class CatalogServiceController {
   // ==========================================
 
   @Post('upload')
+  @Roles('SUPER_ADMIN', 'WAREHOUSE_MANAGER')
+  @UseGuards(RolesGuard)
   @UseInterceptors(FileInterceptor('file'))
   async uploadImage(@UploadedFile() file: Express.Multer.File) {
     return this.cloudinaryService.uploadImage(file);
@@ -112,10 +114,7 @@ export class CatalogServiceController {
   @Put('products/:id')
   @Roles('SUPER_ADMIN', 'WAREHOUSE_MANAGER')
   @UseGuards(RolesGuard)
-  async updateProduct(
-    @Param('id') id: string,
-    @Body() dto: UpdateProductDto,
-  ) {
+  async updateProduct(@Param('id') id: string, @Body() dto: UpdateProductDto) {
     return this.catalogService.updateProduct(id, dto);
   }
 }

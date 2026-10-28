@@ -5,6 +5,7 @@ export interface SocketUserPayload {
   userId: string;
   role?: string;
   branchId?: string | null;
+  warehouseId?: string | null;
 }
 
 interface TicketRecord {

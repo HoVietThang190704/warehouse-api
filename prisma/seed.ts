@@ -39,6 +39,8 @@ async function main() {
     update: {
       passwordHash,
       role: UserRole.SUPER_ADMIN,
+      warehouseId: warehouse.id,
+      branchId: branch.id,
     },
     create: {
       email: 'admin@warehouse.local',
@@ -46,6 +48,29 @@ async function main() {
       fullName: 'Quản trị viên Kho',
       role: UserRole.SUPER_ADMIN,
       branchId: branch.id,
+      warehouseId: warehouse.id,
+      isActive: true,
+    },
+  });
+
+  // 3.1 Create Default Staff User (Assigned to KHO-01)
+  const staffPasswordHash = await bcrypt.hash('Staff@123', 10);
+  await prisma.user.upsert({
+    where: { email: 'staff@warehouse.local' },
+    update: {
+      passwordHash: staffPasswordHash,
+      role: UserRole.WAREHOUSE_STAFF,
+      warehouseId: warehouse.id,
+      branchId: branch.id,
+      isActive: true,
+    },
+    create: {
+      email: 'staff@warehouse.local',
+      passwordHash: staffPasswordHash,
+      fullName: 'Nhân viên Xuất Kho',
+      role: UserRole.WAREHOUSE_STAFF,
+      branchId: branch.id,
+      warehouseId: warehouse.id,
       isActive: true,
     },
   });
