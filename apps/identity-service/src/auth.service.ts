@@ -71,6 +71,7 @@ export class AuthService {
       user.email,
       user.role,
       user.branchId,
+      user.warehouseId,
     );
 
     return {
@@ -80,6 +81,7 @@ export class AuthService {
         fullName: user.fullName,
         role: user.role,
         branchId: user.branchId,
+        warehouseId: user.warehouseId,
       },
       tokens,
     };
@@ -113,12 +115,14 @@ export class AuthService {
     email: string,
     role: string,
     branchId: string | null,
+    warehouseId?: string | null,
   ) {
     const payload = {
       sub: userId,
       email,
       role,
       branchId: branchId || null,
+      warehouseId: warehouseId || null,
     };
 
     const jwtSecret = this.getJwtSecret();
@@ -158,6 +162,7 @@ export class AuthService {
         fullName: true,
         role: true,
         branchId: true,
+        warehouseId: true,
         isActive: true,
         createdAt: true,
       },
@@ -179,6 +184,7 @@ export class AuthService {
       email: string;
       role: string;
       branchId?: string | null;
+      warehouseId?: string | null;
     };
     try {
       const jwtRefreshSecret = this.getJwtRefreshSecret();
@@ -232,6 +238,7 @@ export class AuthService {
       user.email,
       user.role,
       user.branchId,
+      user.warehouseId,
     );
 
     return {

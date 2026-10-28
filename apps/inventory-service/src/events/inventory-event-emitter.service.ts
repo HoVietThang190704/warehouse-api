@@ -12,7 +12,9 @@ export interface EmitInventoryChangedParams {
 export class InventoryEventEmitterService {
   private readonly logger = new Logger(InventoryEventEmitterService.name);
 
-  async emitInventoryChanged(params: EmitInventoryChangedParams): Promise<void> {
+  async emitInventoryChanged(
+    params: EmitInventoryChangedParams,
+  ): Promise<void> {
     const gatewayUrl =
       process.env.API_GATEWAY_URL ||
       process.env.GATEWAY_URL ||

@@ -24,12 +24,14 @@ export class RolesGuard implements CanActivate {
     const userRole = request.headers['x-user-role'] || request.user?.role;
 
     if (!userRole) {
-      return true; // Cho phép trong môi trường nội bộ / dev nếu không có gateway
+      throw new ForbiddenException('Yêu cầu thông tin quyền hợp lệ!');
     }
 
     const hasRole = requiredRoles.includes(userRole);
     if (!hasRole) {
-      throw new ForbiddenException('Bạn không có quyền thực hiện thao tác này!');
+      throw new ForbiddenException(
+        'Bạn không có quyền thực hiện thao tác này!',
+      );
     }
 
     return true;

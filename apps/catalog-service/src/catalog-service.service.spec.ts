@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CatalogServiceService } from './catalog-service.service';
 import { PrismaService } from './prisma.service';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import { InventoryEventEmitterService } from '@common';
 
@@ -59,7 +63,10 @@ describe('CatalogServiceService - Edit & Detail & Delete', () => {
       providers: [
         CatalogServiceService,
         { provide: PrismaService, useValue: mockPrisma },
-        { provide: InventoryEventEmitterService, useValue: mockInventoryEventEmitter },
+        {
+          provide: InventoryEventEmitterService,
+          useValue: mockInventoryEventEmitter,
+        },
       ],
     }).compile();
 
@@ -92,8 +99,14 @@ describe('CatalogServiceService - Edit & Detail & Delete', () => {
     });
 
     it('should update category name', async () => {
-      mockPrisma.productCategory.findUnique.mockResolvedValue({ id: 'cat-1', name: 'Cũ' });
-      mockPrisma.productCategory.update.mockResolvedValue({ id: 'cat-1', name: 'Mới' });
+      mockPrisma.productCategory.findUnique.mockResolvedValue({
+        id: 'cat-1',
+        name: 'Cũ',
+      });
+      mockPrisma.productCategory.update.mockResolvedValue({
+        id: 'cat-1',
+        name: 'Mới',
+      });
 
       const updated = await service.updateCategory('cat-1', { name: 'Mới' });
       expect(updated.name).toBe('Mới');
@@ -110,7 +123,9 @@ describe('CatalogServiceService - Edit & Detail & Delete', () => {
         _count: { products: 3 },
       });
 
-      await expect(service.deleteCategory('cat-1')).rejects.toThrow(BadRequestException);
+      await expect(service.deleteCategory('cat-1')).rejects.toThrow(
+        BadRequestException,
+      );
       expect(mockPrisma.productCategory.delete).not.toHaveBeenCalled();
     });
 
@@ -166,7 +181,11 @@ describe('CatalogServiceService - Edit & Detail & Delete', () => {
     it('should create product and record opening balance in transaction when initialQuantity > 0', async () => {
       mockPrisma.product.findUnique.mockResolvedValue(null);
       mockPrisma.unit.findFirst.mockResolvedValue({ id: 'u-1', name: 'Cái' });
-      mockPrisma.warehouse.findFirst.mockResolvedValue({ id: 'wh-default', name: 'Kho Tổng', isDefault: true });
+      mockPrisma.warehouse.findFirst.mockResolvedValue({
+        id: 'wh-default',
+        name: 'Kho Tổng',
+        isDefault: true,
+      });
 
       const createdProduct = {
         id: 'prod-with-stock',

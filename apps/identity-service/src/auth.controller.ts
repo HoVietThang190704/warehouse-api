@@ -8,6 +8,7 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -21,8 +22,10 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
-  async register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
+  async register(@Body() _dto: RegisterDto) {
+    throw new ForbiddenException(
+      'Đăng ký công khai đã bị vô hiệu hóa. Tài khoản phải do Quản trị viên khởi tạo và cấp quyền.',
+    );
   }
 
   @Post('login')
@@ -63,17 +66,24 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ) {
     const bearerToken = request.headers.authorization?.replace('Bearer ', '');
-    const refreshToken = request.cookies?.['refresh_token'] || bodyToken || bearerToken;
+    const refreshToken =
+      request.cookies?.['refresh_token'] || bodyToken || bearerToken;
 
-    const result = await this.authService.refreshToken(refreshToken);
+    try {
+      const result = await this.authService.refreshToken(refreshToken);
 
-    this.setTokenCookies(
-      response,
-      result.tokens.accessToken,
-      result.tokens.refreshToken,
-    );
+      this.setTokenCookies(
+        response,
+        result.tokens.accessToken,
+        result.tokens.refreshToken,
+      );
 
-    return result;
+      return result;
+    } catch (err) {
+      response.clearCookie('access_token');
+      response.clearCookie('refresh_token');
+      throw err;
+    }
   }
 
   @Post('logout')
