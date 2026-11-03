@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { InventoryController } from './inventory.controller';
 import { InventoryService } from './inventory.service';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 
 describe('InventoryController Permissions', () => {
   let controller: InventoryController;
@@ -62,6 +62,24 @@ describe('InventoryController Permissions', () => {
   });
 
   describe('recordStockReceipt (Nhập kho)', () => {
+    it('should throw UnauthorizedException if userId or role is missing', () => {
+      expect(() =>
+        controller.recordStockReceipt(
+          { warehouseId: 'w1', productId: 'p1', quantity: 5 },
+          undefined,
+          'SUPER_ADMIN',
+        ),
+      ).toThrow(UnauthorizedException);
+
+      expect(() =>
+        controller.recordStockReceipt(
+          { warehouseId: 'w1', productId: 'p1', quantity: 5 },
+          'user-1',
+          undefined,
+        ),
+      ).toThrow(UnauthorizedException);
+    });
+
     it('should forbid WAREHOUSE_STAFF from creating stock receipt', () => {
       expect(() =>
         controller.recordStockReceipt(
@@ -84,6 +102,26 @@ describe('InventoryController Permissions', () => {
   });
 
   describe('recordStockIssue (Xuất kho)', () => {
+    it('should throw UnauthorizedException if userId or role is missing', () => {
+      expect(() =>
+        controller.recordStockIssue(
+          { warehouseId: 'w1', productId: 'p1', quantity: 1 },
+          undefined,
+          'WAREHOUSE_STAFF',
+          'w1',
+        ),
+      ).toThrow(UnauthorizedException);
+
+      expect(() =>
+        controller.recordStockIssue(
+          { warehouseId: 'w1', productId: 'p1', quantity: 1 },
+          'user-1',
+          undefined,
+          'w1',
+        ),
+      ).toThrow(UnauthorizedException);
+    });
+
     it('should forbid WAREHOUSE_STAFF if no assigned warehouse', () => {
       expect(() =>
         controller.recordStockIssue(

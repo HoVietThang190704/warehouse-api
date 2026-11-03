@@ -6,6 +6,7 @@ import {
   Query,
   Headers,
   ForbiddenException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
 import {
@@ -113,12 +114,17 @@ export class InventoryController {
     @Headers('x-user-id') userId?: string,
     @Headers('x-user-role') role?: string,
   ) {
+    if (!userId || !role) {
+      throw new UnauthorizedException(
+        'Vui lòng đăng nhập để thực hiện thao tác kho!',
+      );
+    }
     if (role === 'WAREHOUSE_STAFF') {
       throw new ForbiddenException(
         'Nhân viên cấp dưới không có quyền tạo phiếu nhập kho!',
       );
     }
-    if (role && role !== 'SUPER_ADMIN' && role !== 'WAREHOUSE_MANAGER') {
+    if (role !== 'SUPER_ADMIN' && role !== 'WAREHOUSE_MANAGER') {
       throw new ForbiddenException(
         'Bạn không có quyền thực hiện thao tác nhập kho!',
       );
@@ -133,6 +139,11 @@ export class InventoryController {
     @Headers('x-user-role') role?: string,
     @Headers('x-user-warehouse-id') staffWarehouseId?: string,
   ) {
+    if (!userId || !role) {
+      throw new UnauthorizedException(
+        'Vui lòng đăng nhập để thực hiện thao tác kho!',
+      );
+    }
     if (role === 'WAREHOUSE_STAFF') {
       if (!staffWarehouseId) {
         throw new ForbiddenException(
