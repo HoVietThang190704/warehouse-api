@@ -11,6 +11,7 @@ describe('InventoryController Permissions', () => {
     getStockBalances: jest.Mock;
     getDashboardKpis: jest.Mock;
     getDocuments: jest.Mock;
+    getPerformers: jest.Mock;
     recordStockReceipt: jest.Mock;
     recordStockIssue: jest.Mock;
   };
@@ -22,6 +23,7 @@ describe('InventoryController Permissions', () => {
       getStockBalances: jest.fn().mockResolvedValue([]),
       getDashboardKpis: jest.fn().mockResolvedValue({}),
       getDocuments: jest.fn().mockResolvedValue([]),
+      getPerformers: jest.fn().mockResolvedValue([]),
       recordStockReceipt: jest.fn().mockResolvedValue({ id: 'doc-in' }),
       recordStockIssue: jest.fn().mockResolvedValue({ id: 'doc-out' }),
     };
@@ -136,6 +138,49 @@ describe('InventoryController Permissions', () => {
       expect(service.getStockBalances).toHaveBeenCalledWith({
         warehouseId: 'w-assigned',
       });
+    });
+  });
+
+  describe('getDocuments & getPerformers', () => {
+    it('should allow filtering documents by time and performer for admin', async () => {
+      const query = {
+        startDate: '2026-01-01',
+        endDate: '2026-12-31',
+        userId: 'user-abc',
+      };
+      await controller.getDocuments(query, 'SUPER_ADMIN');
+      expect(service.getDocuments).toHaveBeenCalledWith(query);
+    });
+
+    it('should forbid staff if no assigned warehouse for getDocuments', () => {
+      expect(() =>
+        controller.getDocuments({}, 'WAREHOUSE_STAFF', undefined),
+      ).toThrow(ForbiddenException);
+    });
+
+    it('should forbid staff if querying another warehouse for getDocuments', () => {
+      expect(() =>
+        controller.getDocuments(
+          { warehouseId: 'w-other' },
+          'WAREHOUSE_STAFF',
+          'w-assigned',
+        ),
+      ).toThrow(ForbiddenException);
+    });
+
+    it('should enforce assigned warehouse for staff when querying documents', async () => {
+      const query = { startDate: '2026-05-01' };
+      await controller.getDocuments(query, 'WAREHOUSE_STAFF', 'w-assigned');
+      expect(query).toEqual({
+        startDate: '2026-05-01',
+        warehouseId: 'w-assigned',
+      });
+      expect(service.getDocuments).toHaveBeenCalledWith(query);
+    });
+
+    it('should return performers', async () => {
+      await controller.getPerformers();
+      expect(service.getPerformers).toHaveBeenCalled();
     });
   });
 });

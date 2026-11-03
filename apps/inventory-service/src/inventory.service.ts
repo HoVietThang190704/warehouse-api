@@ -8,6 +8,7 @@ import {
   StockReceiptDto,
   StockIssueDto,
   StockQueryDto,
+  StockDocumentQueryDto,
 } from './dto/stock-operation.dto';
 import {
   StockDocumentType,
@@ -569,10 +570,80 @@ export class InventoryService {
   }
 
   // 6. Lịch sử chứng từ (Documents)
-  async getDocuments(warehouseId?: string) {
-    const resolvedWarehouseId = await this.resolveWarehouseId(warehouseId);
+  async getDocuments(query?: StockDocumentQueryDto | string) {
+    const warehouseIdParam =
+      typeof query === 'string' ? query : query?.warehouseId;
+    const resolvedWarehouseId = await this.resolveWarehouseId(warehouseIdParam);
+
+    const where: Prisma.StockDocumentWhereInput = {
+      warehouseId: resolvedWarehouseId,
+    };
+
+    if (typeof query === 'object' && query !== null) {
+      if (query.startDate || query.endDate) {
+        where.createdAt = {};
+        if (query.startDate) {
+          const start = new Date(query.startDate);
+          if (!isNaN(start.getTime())) {
+            start.setHours(0, 0, 0, 0);
+            where.createdAt.gte = start;
+          }
+        }
+        if (query.endDate) {
+          const end = new Date(query.endDate);
+          if (!isNaN(end.getTime())) {
+            end.setHours(23, 59, 59, 999);
+            where.createdAt.lte = end;
+          }
+        }
+      }
+
+      if (query.userId) {
+        where.OR = [
+          { createdBy: query.userId },
+          { postedBy: query.userId },
+        ];
+      }
+
+      if (query.type && query.type !== 'ALL') {
+        if (query.type === 'IN') {
+          where.type = { in: ['PURCHASE_RECEIPT', 'MANUAL_IN', 'OPENING_BALANCE'] };
+        } else if (query.type === 'OUT') {
+          where.type = { in: ['MANUAL_OUT', 'SALES_ISSUE'] };
+        } else if (Object.values(StockDocumentType).includes(query.type as StockDocumentType)) {
+          where.type = query.type as StockDocumentType;
+        }
+      }
+
+      if (query.search) {
+        const searchTrim = query.search.trim();
+        if (searchTrim) {
+          where.AND = [
+            {
+              OR: [
+                { code: { contains: searchTrim, mode: 'insensitive' } },
+                { note: { contains: searchTrim, mode: 'insensitive' } },
+                {
+                  items: {
+                    some: {
+                      product: {
+                        OR: [
+                          { name: { contains: searchTrim, mode: 'insensitive' } },
+                          { sku: { contains: searchTrim, mode: 'insensitive' } },
+                        ],
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          ];
+        }
+      }
+    }
+
     const documents = await this.prisma.stockDocument.findMany({
-      where: { warehouseId: resolvedWarehouseId },
+      where,
       include: {
         items: {
           include: {
@@ -581,7 +652,7 @@ export class InventoryService {
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: 50,
+      take: 200,
     });
 
     const userIds = Array.from(
@@ -628,6 +699,20 @@ export class InventoryService {
         totalQuantity,
         totalAmount,
       };
+    });
+  }
+
+  // 7. Danh sách nhân viên thực hiện (phục vụ bộ lọc Lịch sử xuất/nhập)
+  async getPerformers() {
+    return this.prisma.user.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+      },
+      orderBy: { fullName: 'asc' },
     });
   }
 }

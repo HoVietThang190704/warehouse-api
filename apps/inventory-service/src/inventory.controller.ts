@@ -12,6 +12,7 @@ import {
   StockReceiptDto,
   StockIssueDto,
   StockQueryDto,
+  StockDocumentQueryDto,
 } from './dto/stock-operation.dto';
 
 @Controller('inventory')
@@ -81,25 +82,29 @@ export class InventoryController {
 
   @Get('documents')
   getDocuments(
-    @Query('warehouseId') warehouseId?: string,
+    @Query() query: StockDocumentQueryDto,
     @Headers('x-user-role') role?: string,
     @Headers('x-user-warehouse-id') staffWarehouseId?: string,
   ) {
-    let targetWarehouseId = warehouseId;
     if (role === 'WAREHOUSE_STAFF') {
       if (!staffWarehouseId) {
         throw new ForbiddenException(
           'Tài khoản nhân viên chưa được gán kho làm việc!',
         );
       }
-      if (warehouseId && warehouseId !== staffWarehouseId) {
+      if (query.warehouseId && query.warehouseId !== staffWarehouseId) {
         throw new ForbiddenException(
           'Nhân viên không có quyền xem chứng từ của kho khác!',
         );
       }
-      targetWarehouseId = staffWarehouseId;
+      query.warehouseId = staffWarehouseId;
     }
-    return this.inventoryService.getDocuments(targetWarehouseId);
+    return this.inventoryService.getDocuments(query);
+  }
+
+  @Get('performers')
+  getPerformers() {
+    return this.inventoryService.getPerformers();
   }
 
   @Post('receipts')

@@ -69,3 +69,29 @@ export class StockQueryDto {
   @IsString()
   search?: string;
 }
+
+export class StockDocumentQueryDto {
+  @IsOptional()
+  @IsUUID('4')
+  warehouseId?: string;
+
+  @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsString()
+  endDate?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  userId?: string;
+
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
