@@ -76,8 +76,10 @@ async function bootstrap() {
         proxyReq.setHeader('authorization', `Bearer ${token}`);
       }
       try {
+        const secret =
+          process.env.JWT_SECRET || process.env.ACCESS_TOKEN_SECRET;
         const payload = jwtService.verify(token, {
-          secret: process.env.JWT_SECRET,
+          secret,
         });
         if (payload?.sub) proxyReq.setHeader('x-user-id', payload.sub);
         if (payload?.role) proxyReq.setHeader('x-user-role', payload.role);
