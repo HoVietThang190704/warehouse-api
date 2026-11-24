@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "outDir": "../../dist/apps/vercel"
+  },
+  "include": [
+    "src/**/*",
+    "../identity-service/src/**/*",
+    "../catalog-service/src/**/*",
+    "../inventory-service/src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "**/*spec.ts",
+    "../**/*spec.ts",
+    "../**/test/**"
+  ]
+}
