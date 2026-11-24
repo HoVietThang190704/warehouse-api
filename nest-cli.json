@@ -51,6 +51,15 @@
       "root": "libs/common",
       "entryFile": "index",
       "sourceRoot": "libs/common/src"
+    },
+    "vercel": {
+      "type": "application",
+      "root": "apps/api-gateway",
+      "entryFile": "serverless",
+      "sourceRoot": "apps/api-gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/api-gateway/tsconfig.vercel.json"
+      }
     }
   }
 }
