@@ -3,16 +3,16 @@
   "version": 2,
   "installCommand": "pnpm install",
   "buildCommand": "pnpm build:vercel",
-  "builds": [
-    {
-      "src": "dist/apps/api-gateway/serverless.js",
-      "use": "@vercel/node"
+  "outputDirectory": "public",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 30
     }
-  ],
-  "routes": [
+  },
+  "rewrites": [
     {
-      "src": "/(.*)",
-      "dest": "dist/apps/api-gateway/serverless.js"
+      "source": "/(.*)",
+      "destination": "/api"
     }
   ]
 }
