@@ -58,7 +58,9 @@
       "entryFile": "serverless",
       "sourceRoot": "apps/api-gateway/src",
       "compilerOptions": {
-        "tsConfigPath": "apps/api-gateway/tsconfig.vercel.json"
+        "tsConfigPath": "apps/api-gateway/tsconfig.vercel.json",
+        "webpack": true,
+        "webpackConfigPath": "apps/api-gateway/webpack.vercel.config.js"
       }
     }
   }
