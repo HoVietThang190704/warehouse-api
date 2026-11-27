@@ -5,6 +5,9 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.x"
+  },
   "scripts": {
     "dev": "concurrently -n gateway,identity,catalog,inventory -c blue,green,yellow,magenta \"pnpm start:gateway:dev\" \"pnpm start:identity:dev\" \"pnpm start:catalog:dev\" \"pnpm start:inventory:dev\"",
     "build": "prisma generate && nest build api-gateway && nest build identity-service && nest build catalog-service && nest build inventory-service",
