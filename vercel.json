@@ -6,7 +6,8 @@
   "outputDirectory": "public",
   "functions": {
     "api/index.js": {
-      "maxDuration": 30
+      "maxDuration": 30,
+      "includeFiles": "{dist/**,prisma/**,node_modules/.prisma/**,node_modules/@prisma/**}"
     }
   },
   "rewrites": [

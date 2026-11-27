@@ -6,8 +6,8 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
-  async onModuleInit() {
-    await this.$connect();
+  onModuleInit() {
+    // Lazy connect on first query in serverless/Vercel environment
   }
 
   async onModuleDestroy() {
